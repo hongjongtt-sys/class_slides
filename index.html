@@ -6,6 +6,7 @@
 <title>프린트 슬라이드</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
 :root{
   --bg:#f4f5f7; --panel:#fff; --ink:#1d2330; --muted:#6b7280; --line:#e3e6eb;
@@ -74,6 +75,8 @@ button{font:inherit;cursor:pointer}
 .card .meta button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:var(--ink)}
 .card .meta button:hover{background:#f0f2f5}
 .card .meta button.del:hover{color:var(--warn);border-color:#f3c5c0}
+.banner{margin:10px 20px 0;padding:10px 14px;border-radius:10px;background:var(--soft);color:var(--accent);font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.banner button{border:1px solid #c9d8e8;background:#fff;color:var(--accent);border-radius:8px;padding:5px 10px;font-size:13px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:50}
 .toast.show{opacity:.95}
 
@@ -129,9 +132,11 @@ button{font:inherit;cursor:pointer}
       <span class="seg" id="pos"><button data-v="right" class="on">오른쪽</button><button data-v="bottom">아래</button><button data-v="none">없음</button></span>
       <span class="seg" id="reserve"><button data-v="0.3">30%</button><button data-v="0.4" class="on">40%</button><button data-v="0.5">50%</button></span>
     </label>
+    <button class="btn ghost" id="saveBtn">⬇ PDF로 저장</button>
     <button class="btn ghost" id="newBtn">다른 파일</button>
     <button class="btn" id="playBtn">▶ 발표 시작</button>
   </div>
+  <div class="banner hidden" id="banner"></div>
   <div class="help" id="help">
     썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙입니다.
     발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
@@ -166,6 +171,7 @@ button{font:inherit;cursor:pointer}
     <button id="hUndo" title="되돌리기 (Z)">↶</button>
     <button id="hClear" title="판서 지우기 (C)">지우기</button>
     <span class="sep"></span>
+    <button id="hSave" title="판서 포함해서 PDF로 저장">⬇ 저장</button>
     <button id="hFull" title="전체화면 (F)">⛶</button>
     <button id="hExit" title="종료 (Esc)">✕</button>
   </div>
@@ -234,15 +240,33 @@ async function openFile(file) {
   try {
     $('#progress').textContent = '파일 여는 중…';
     const buf = await file.arrayBuffer();
+    S.bytes = new Uint8Array(buf.slice(0));           // PDF 저장용 원본 사본
     S.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     S.name = file.name.replace(/\.pdf$/i, '');
+    // 이 앱에서 저장한 슬라이드 PDF인지 확인 → 그렇다면 다시 자르지 않음
+    S.exported = false;
+    try {
+      const meta = await S.pdf.getMetadata();
+      S.exported = /print-slides/.test((meta.info && (meta.info.Keywords || meta.info.Subject)) || '');
+    } catch (e) {}
+    S.key = 'print-slides:' + ((S.pdf.fingerprints && S.pdf.fingerprints[0]) || (file.name + file.size));
     S.pages = [];
     for (let i = 1; i <= S.pdf.numPages; i++) {
-      $('#progress').textContent = `페이지 분석 중… ${i} / ${S.pdf.numPages}`;
+      $('#progress').textContent = `페이지 ${S.exported ? '불러오는' : '분석'} 중… ${i} / ${S.pdf.numPages}`;
       S.pages.push(await analyzePage(i));
     }
     S.ink = {}; S.edited = false;
-    buildSlides();
+    let banner = '';
+    if (S.exported) {
+      S.slides = S.pages.map((pg, i) => ({ id: uid++, pieces: [{ p: i, c: 0, y0: 0, y1: pg.H }] }));
+      banner = '이 앱에서 저장한 슬라이드 PDF예요. 다시 자르지 않고 한 장씩 그대로 씁니다.';
+    } else if (loadLayout()) {
+      if (S.edited) banner = '지난번에 편집한 슬라이드 구성을 불러왔어요.';
+    } else {
+      buildSlides();
+    }
+    applyModeUI();
+    showBanner(banner, !S.exported && S.edited);
     $('#progress').textContent = '';
     $('#docTitle').textContent = S.name;
     showView('editor');
@@ -269,6 +293,10 @@ async function analyzePage(no) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
+  if (S.exported) {   // 이미 슬라이드 한 장 = 한 페이지
+    return { no, page, scale, vp, W: cv.width, H: cv.height, canvas: cv,
+             columns: [{ x0: 0, x1: cv.width, lines: [], texts: [] }] };
+  }
   const W = cv.width, H = cv.height;
   const d = ctx.getImageData(0, 0, W, H).data;
   const ink = new Uint8Array(W * H);
@@ -339,7 +367,7 @@ async function analyzePage(no) {
       texts: texts.filter(t => t.x >= x0 - 2 && t.x < x1),
     });
   }
-  return { no, page, scale, W, H, canvas: cv, columns };
+  return { no, page, scale, vp, W, H, canvas: cv, columns };
 }
 
 // 구간 안에서 글자가 있는 첫 줄의 텍스트 (표 테두리처럼 글자 없는 줄은 건너뜀)
@@ -480,6 +508,7 @@ function drawThumb(sl, cv, maxW) {
    4) 편집 화면
    ========================================================= */
 function renderGrid() {
+  saveLayout();
   const grid = $('#grid');
   grid.innerHTML = '';
   S.slides.forEach((sl, idx) => {
@@ -603,8 +632,111 @@ $('#pos').onclick = e => {
   }
   renderGrid();
 };
-$('#newBtn').onclick = () => { S.pdf && S.pdf.destroy(); S.pdf = null; S.pages = []; S.slides = []; $('#file').value = ''; showView('upload'); };
+$('#newBtn').onclick = () => { showBanner(''); S.pdf && S.pdf.destroy(); S.pdf = null; S.pages = []; S.slides = []; $('#file').value = ''; showView('upload'); };
 $('#playBtn').onclick = () => startShow(0);
+
+/* =========================================================
+   편집 내용 기억하기 (같은 PDF를 다시 올리면 자동 복원)
+   ========================================================= */
+function saveLayout() {
+  if (S.exported || !S.key) return;
+  try {
+    localStorage.setItem(S.key, JSON.stringify({
+      v: 1, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
+      slides: S.slides.map(sl => sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1])), t: Date.now(),
+    }));
+  } catch (e) {}
+}
+function loadLayout() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(S.key) || 'null'); } catch (e) {}
+  if (!d || d.v !== 1 || d.n !== S.pages.length) return false;
+  const ok = d.slides.every(ps => ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
+  if (!ok) return false;
+  S.maxH = d.maxH; S.pos = d.pos; S.reserve = d.reserve; S.edited = !!d.edited;
+  S.slides = d.slides.map(ps => ({ id: uid++, pieces: ps.map(([p, c, y0, y1]) => ({ p, c, y0, y1 })) }));
+  return true;
+}
+function applyModeUI() {
+  $('#size').value = Math.round(S.maxH * 100);
+  [...$('#pos').children].forEach(x => x.classList.toggle('on', x.dataset.v === S.pos));
+  [...$('#reserve').children].forEach(x => x.classList.toggle('on', +x.dataset.v === S.reserve));
+  $('#reserve').style.display = S.pos === 'none' ? 'none' : '';
+  document.querySelectorAll('.bar label').forEach(l => l.classList.toggle('hidden', S.exported));
+}
+function showBanner(text, withReset) {
+  const b = $('#banner');
+  if (!text) { b.classList.add('hidden'); return; }
+  b.innerHTML = '';
+  const sp = document.createElement('span'); sp.textContent = text; b.append(sp);
+  if (withReset) b.append(btn('자동 분할로 처음부터 다시', () => {
+    if (!confirm('직접 고친 구성을 버리고 자동 분할로 다시 만들까요?')) return;
+    S.edited = false; S.ink = {}; buildSlides(); S.cur = 0; showBanner(''); renderGrid();
+  }));
+  b.classList.remove('hidden');
+}
+
+/* =========================================================
+   PDF로 저장: 원본 PDF를 잘라 붙여서(벡터 그대로) 16:9 페이지로 만듦
+   ========================================================= */
+async function exportPdf(withInk) {
+  if (!window.PDFLib) return toast('PDF 저장 도구를 불러오지 못했어요 (인터넷 연결 확인)');
+  toast('PDF 만드는 중…');
+  const { PDFDocument, rgb, LineCapStyle } = PDFLib;
+  const src = await PDFDocument.load(S.bytes, { ignoreEncryption: true });
+  const out = await PDFDocument.create();
+  const PW = 960, PH = PW * ((screen.height / screen.width) || 9 / 16);
+  // 원본 페이지는 한 번만 넣고, 필요한 부분만 잘라서(clip) 보여줌 → 파일이 작음
+  const full = new Map();
+  const getFull = async pg => {
+    if (!full.has(pg.no)) {
+      const sp = src.getPage(pg.no - 1), mb = sp.getMediaBox();
+      const [e] = await out.embedPages([sp], [{ left: mb.x, bottom: mb.y, right: mb.x + mb.width, top: mb.y + mb.height }]);
+      full.set(pg.no, { e, mb });
+    }
+    return full.get(pg.no);
+  };
+  const { pushGraphicsState, popGraphicsState, rectangle, clip, endPath } = PDFLib;
+  for (const sl of S.slides) {
+    const page = out.addPage([PW, PH]);
+    const L = layout(sl, PW, PH);
+    let y = 0;
+    for (let n = 0; n < sl.pieces.length; n++) {
+      const pc = sl.pieces[n], pg = S.pages[pc.p], col = pg.columns[pc.c];
+      if (n) y += pg.H * CFG.SPACER;
+      const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
+      const { e, mb } = await getFull(pg);
+      // 조각의 PDF 좌표(pt)
+      const [ax, ay] = pg.vp.convertToPdfPoint(col.x0, pc.y0), [bx, by] = pg.vp.convertToPdfPoint(col.x1, pc.y1);
+      const left = Math.min(ax, bx), bottom = Math.min(ay, by), right = Math.max(ax, bx), top = Math.max(ay, by);
+      const k = (w * L.s) / (right - left);             // pt → 출력 pt
+      const X = L.x, Y = PH - (L.y + (y + h) * L.s), DW = w * L.s, DH = h * L.s;
+      page.pushOperators(pushGraphicsState(), rectangle(X, Y, DW, DH), clip(), endPath());
+      page.drawPage(e, { x: X - (left - mb.x) * k, y: Y - (bottom - mb.y) * k, width: mb.width * k, height: mb.height * k });
+      page.pushOperators(popGraphicsState());
+      y += h;
+    }
+    if (withInk) {
+      for (const st of (S.ink[sl.id] || [])) {
+        const c = st.c, color = rgb(parseInt(c.slice(1, 3), 16) / 255, parseInt(c.slice(3, 5), 16) / 255, parseInt(c.slice(5, 7), 16) / 255);
+        const P = st.pts.map(([u, v]) => ({ x: L.x + u * L.cw, y: PH - (L.y + v * L.ch) }));
+        const thick = st.w * Math.min(PW, PH) / 900;
+        if (P.length === 1) P.push({ x: P[0].x + 0.1, y: P[0].y });
+        for (let i = 1; i < P.length; i++)
+          page.drawLine({ start: P[i - 1], end: P[i], thickness: thick, color, lineCap: LineCapStyle.Round });
+      }
+    }
+  }
+  out.setTitle(S.name); out.setKeywords(['print-slides']); out.setSubject('print-slides');
+  const bytes = await out.save();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  a.download = `${S.name.replace(/_(슬라이드|판서)$/, '')}_${withInk ? '판서' : '슬라이드'}.pdf`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast('PDF를 저장했어요');
+}
+$('#saveBtn').onclick = () => exportPdf(false).catch(e => { console.error(e); toast('PDF 저장에 실패했어요'); });
 
 /* =========================================================
    5) 발표 모드
@@ -634,6 +766,10 @@ function goFull() { const el = document.documentElement; if (!document.fullscree
 // 화면(W×H)에 슬라이드 배치. 판서 공간(오른쪽/아래)은 비워 둠
 function layout(sl, W = innerWidth, H = innerHeight) {
   const g = geom(sl);
+  if (S.exported) {
+    const s = Math.min(W / g.w, H / g.h), cw = g.w * s, ch = g.h * s;
+    return { x: (W - cw) / 2, y: (H - ch) / 2, s, cw, ch, ws: null };
+  }
   const mx = W * 0.03, my = H * 0.045;
   let ax0 = mx, ax1 = W - mx, ay0 = my, ay1 = H - my, ws = null;
   if (S.pos === 'right') { ax1 = W * (1 - S.reserve) - W * 0.01; ws = { x: W * (1 - S.reserve), y: 0, w: W * S.reserve, h: H }; }
@@ -770,6 +906,7 @@ $('#hClear').onclick = clearInk;
 $('#hFull').onclick = toggleFull;
 function toggleFull() { if (document.fullscreenElement) { S._manual = true; document.exitFullscreen(); } else goFull(); }
 $('#hExit').onclick = endShow;
+$('#hSave').onclick = () => exportPdf(true).catch(e => { console.error(e); toast('PDF 저장에 실패했어요'); });
 setColor('#e0262b'); setPen(false);
 
 /* ---------- 키보드 · 프레젠터 ---------- */
