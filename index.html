@@ -75,6 +75,23 @@ button{font:inherit;cursor:pointer}
 .card .meta button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:var(--ink)}
 .card .meta button:hover{background:#f0f2f5}
 .card .meta button.del:hover{color:var(--warn);border-color:#f3c5c0}
+/* 배치 창 */
+#arrange .mbody{padding:18px 22px 24px}
+.atools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line)}
+.atools .lab{color:var(--muted);font-size:13px;margin-right:2px}
+.atools button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:13px;color:var(--ink)}
+.atools button:hover{background:#f0f2f5}
+.atools .sp{flex:1}
+.atools .btn{padding:7px 16px}
+.board{position:relative;width:100%;aspect-ratio:16/9;background:#fff;box-shadow:0 0 0 1px var(--line),0 6px 20px rgba(0,0,0,.06);border-radius:4px;overflow:hidden;touch-action:none;user-select:none}
+.blk{position:absolute;cursor:move;outline:1px dashed #9db6d3;outline-offset:2px}
+.blk:hover,.blk.drag{outline:2px solid var(--accent)}
+.blk canvas{display:block;width:100%;height:100%;pointer-events:none}
+.blk .no{position:absolute;left:-2px;top:-22px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:5px;padding:2px 6px;pointer-events:none}
+.blk .rs{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:nwse-resize}
+.gd{position:absolute;background:#e0262b;pointer-events:none;display:none;z-index:5}
+.gd.v{top:0;bottom:0;width:1px}
+.gd.h{left:0;right:0;height:1px}
 .banner{margin:10px 20px 0;padding:10px 14px;border-radius:10px;background:var(--soft);color:var(--accent);font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .banner button{border:1px solid #c9d8e8;background:#fff;color:var(--accent);border-radius:8px;padding:5px 10px;font-size:13px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:50}
@@ -138,7 +155,7 @@ button{font:inherit;cursor:pointer}
   </div>
   <div class="banner hidden" id="banner"></div>
   <div class="help" id="help">
-    썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙입니다.
+    썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꿀 수 있습니다.
     발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
   </div>
   <div id="grid"></div>
@@ -149,6 +166,24 @@ button{font:inherit;cursor:pointer}
   <div class="mbox">
     <div class="mhead"><b id="mTitle"></b><span>자르고 싶은 줄 사이의 <b>✂</b>를 누르세요</span><button class="btn ghost" id="mClose">닫기</button></div>
     <div class="mbody"><div class="mwrap" id="mWrap"></div></div>
+  </div>
+</div>
+
+<!-- 배치 창 -->
+<div id="arrange" class="hidden" style="position:fixed;inset:0;z-index:30;background:rgba(20,25,35,.55);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:28px 16px">
+  <div class="mbox">
+    <div class="mhead"><b id="aTitle"></b><span>블록을 끌어서 옮기고, 오른쪽 아래 동그라미를 끌어 크기를 바꾸세요. 화면 비율(16:9) 그대로입니다.</span></div>
+    <div class="atools">
+      <span class="lab">빠른 배치</span>
+      <button id="aSide">◫ 좌우로 나란히</button>
+      <button id="aStack">☰ 위아래로</button>
+      <button id="aSame">크기 맞추기</button>
+      <button id="aAuto">자동 배치로 되돌리기</button>
+      <span class="sp"></span>
+      <button id="aCancel">취소</button>
+      <button class="btn" id="aDone">완료</button>
+    </div>
+    <div class="mbody"><div class="board" id="board"><div class="gd v" id="gdV"></div><div class="gd h" id="gdH"></div></div></div>
   </div>
 </div>
 
@@ -244,11 +279,18 @@ async function openFile(file) {
     S.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     S.name = file.name.replace(/\.pdf$/i, '');
     // 이 앱에서 저장한 슬라이드 PDF인지 확인 → 그렇다면 다시 자르지 않음
-    S.exported = false;
+    S.exported = false; S.blocks = null;
     try {
-      const meta = await S.pdf.getMetadata();
-      S.exported = /print-slides/.test((meta.info && (meta.info.Keywords || meta.info.Subject)) || '');
+      const info = (await S.pdf.getMetadata()).info || {};
+      S.exported = /print-slides/.test(info.Keywords || info.Subject || '');
+      // 저장할 때 넣어 둔 블록 위치 → 다시 나누기·합치기·배치 가능
+      const raw = info.Custom && info.Custom.PrintSlides;
+      if (S.exported && raw) {
+        const j = JSON.parse(raw);
+        if (j.v === 1 && j.pages.length === S.pdf.numPages) S.blocks = j.pages;
+      }
     } catch (e) {}
+    S.wholePage = S.exported && !S.blocks;   // 블록 정보 없는 저장본(판서 포함 등) → 한 장 통째로
     S.key = 'print-slides:' + ((S.pdf.fingerprints && S.pdf.fingerprints[0]) || (file.name + file.size));
     S.pages = [];
     for (let i = 1; i <= S.pdf.numPages; i++) {
@@ -257,16 +299,17 @@ async function openFile(file) {
     }
     S.ink = {}; S.edited = false;
     let banner = '';
-    if (S.exported) {
-      S.slides = S.pages.map((pg, i) => ({ id: uid++, pieces: [{ p: i, c: 0, y0: 0, y1: pg.H }] }));
-      banner = '이 앱에서 저장한 슬라이드 PDF예요. 다시 자르지 않고 한 장씩 그대로 씁니다.';
+    if (S.wholePage) {
+      buildSlides();
+      banner = '이 앱에서 판서까지 넣어 저장한 PDF예요. 한 장씩 그대로 씁니다.';
     } else if (loadLayout()) {
       if (S.edited) banner = '지난번에 편집한 슬라이드 구성을 불러왔어요.';
     } else {
       buildSlides();
+      if (S.exported) banner = '이 앱에서 저장한 슬라이드 PDF예요. 저장할 때 구성 그대로 불러왔고, 계속 나누기·합치기·배치할 수 있어요.';
     }
     applyModeUI();
-    showBanner(banner, !S.exported && S.edited);
+    showBanner(banner, !S.wholePage && S.edited);
     $('#progress').textContent = '';
     $('#docTitle').textContent = S.name;
     showView('editor');
@@ -293,7 +336,7 @@ async function analyzePage(no) {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
-  if (S.exported) {   // 이미 슬라이드 한 장 = 한 페이지
+  if (S.wholePage) {   // 이미 슬라이드 한 장 = 한 페이지
     return { no, page, scale, vp, W: cv.width, H: cv.height, canvas: cv,
              columns: [{ x0: 0, x1: cv.width, lines: [], texts: [] }] };
   }
@@ -307,6 +350,24 @@ async function analyzePage(no) {
       const mn = Math.min(r, g, b), mx = Math.max(r, g, b);
       if (mn < 190 || mx - mn > 40) { ink[j] = 1; colSum[x]++; }
     }
+  }
+
+  // --- 저장본: 기록된 블록 사각형을 그대로 '단'으로 사용
+  if (S.blocks) {
+    const columns = (S.blocks[no - 1].r || []).map(([bx, by, bw, bh]) => {
+      const x0 = Math.max(0, Math.round(bx * W)), x1 = Math.min(W, Math.round((bx + bw) * W));
+      const y0 = Math.max(0, Math.round(by * W)), y1 = Math.min(H, Math.round((by + bh) * W));
+      const lines = []; let s = -1;
+      for (let y = y0; y <= y1; y++) {
+        let c = 0;
+        if (y < y1) { const base = y * W; for (let x = x0; x < x1; x++) c += ink[base + x]; }
+        const on = c > 1;
+        if (on && s < 0) s = y;
+        if (!on && s >= 0) { lines.push({ s, e: y, bar: false }); s = -1; }
+      }
+      return { x0, x1, y0, y1, lines, texts: [] };
+    });
+    return { no, page, scale, vp, W, H, canvas: cv, columns };
   }
 
   // --- 단(칼럼) 찾기: 가운데 40~60% 에서 세로 구분선 또는 빈 홈
@@ -387,6 +448,19 @@ function firstText(col, y0, y1) {
    3) 슬라이드 구성
    ========================================================= */
 function buildSlides() {
+  if (S.wholePage) {
+    S.slides = S.pages.map((pg, i) => ({ id: uid++, pieces: [{ p: i, c: 0, y0: 0, y1: pg.H }] }));
+    return;
+  }
+  if (S.exported) {   // 저장할 때의 슬라이드 구성 복원
+    S.slides = S.pages.map((pg, i) => {
+      const sl = { id: uid++, pieces: pg.columns.map((col, c) => ({ p: i, c, y0: col.y0, y1: col.y1 })) };
+      const f = S.blocks[i].f;
+      if (f && f.length === sl.pieces.length) sl.free = f.map(([x, y, w]) => ({ x, y, w }));
+      return sl;
+    });
+    return;
+  }
   const slides = [];
   S.pages.forEach((pg, pi) => {
     const H = pg.H;
@@ -472,12 +546,39 @@ function geom(sl) {
   return { w, h };
 }
 
+/* 슬라이드의 각 조각이 W×H 화면 어디에 그려질지 계산
+   - 자동 배치: 위에서 아래로 쌓음 (판서 공간 설정 반영)
+   - 직접 배치(sl.free): 16:9 틀 안에서 사용자가 옮긴 위치 그대로 */
+const FRAME = 9 / 16;
+function place(sl, W, H) {
+  const items = [];
+  if (sl.free && !S.wholePage) {
+    const F = Math.min(W, H / FRAME), ox = (W - F) / 2, oy = (H - F * FRAME) / 2;
+    sl.pieces.forEach((pc, i) => {
+      const pg = S.pages[pc.p], col = pg.columns[pc.c], f = sl.free[i];
+      const w = col.x1 - col.x0, h = pc.y1 - pc.y0, DW = f.w * F;
+      items.push({ pc, pg, col, w, h, X: ox + f.x * F, Y: oy + f.y * F, DW, DH: DW * h / w });
+    });
+    return { L: { x: ox, y: oy, cw: F, ch: F * FRAME, ws: null }, items };
+  }
+  const L = layout(sl, W, H);
+  let y = 0;
+  sl.pieces.forEach((pc, i) => {
+    const pg = S.pages[pc.p], col = pg.columns[pc.c];
+    if (i) y += pg.H * CFG.SPACER;
+    const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
+    items.push({ pc, pg, col, w, h, X: L.x, Y: L.y + y * L.s, DW: w * L.s, DH: h * L.s });
+    y += h;
+  });
+  return { L, items };
+}
+
 /* 썸네일: 분석용 캔버스를 잘라 붙여서 그림 */
 function drawThumb(sl, cv, maxW) {
   // 실제 발표 화면과 같은 비율(현재 화면 비율)로 미리보기
   const ar = (screen.height / screen.width) || 9 / 16;
   const TW = maxW, TH = Math.round(maxW * ar);
-  const L = layout(sl, TW, TH), k = L.s;
+  const { L, items } = place(sl, TW, TH);
   cv.width = TW; cv.height = TH;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, TW, TH);
@@ -490,25 +591,19 @@ function drawThumb(sl, cv, maxW) {
     ctx.fillStyle = '#8aa3bf'; ctx.font = '600 18px Pretendard, sans-serif';
     ctx.fillText('판서 공간', w.x + 14, w.y + 30);
   }
-  ctx.save(); ctx.translate(L.x, L.y);
-  let y = 0; const map = [];
-  sl.pieces.forEach((pc, i) => {
-    const pg = S.pages[pc.p], col = pg.columns[pc.c];
-    if (i) y += pg.H * CFG.SPACER;
-    const h = pc.y1 - pc.y0, w = col.x1 - col.x0;
-    ctx.drawImage(pg.canvas, col.x0, pc.y0, w, h, 0, y * k, w * k, h * k);
-    map.push({ i, top: L.y + y * k, bot: L.y + (y + h) * k });
-    y += h;
-  });
-  ctx.restore();
-  cv._map = map; cv._k = k;
+  if (sl.free) {   // 직접 배치한 슬라이드 표시
+    ctx.fillStyle = '#8aa3bf'; ctx.font = '600 16px Pretendard, sans-serif';
+    ctx.fillText('직접 배치', TW - 90, TH - 14);
+  }
+  for (const it of items)
+    ctx.drawImage(it.pg.canvas, it.col.x0, it.pc.y0, it.w, it.h, it.X, it.Y, it.DW, it.DH);
 }
 
 /* =========================================================
    4) 편집 화면
    ========================================================= */
 function renderGrid() {
-  saveLayout();
+  saveLayout(); cache.clear();
   const grid = $('#grid');
   grid.innerHTML = '';
   S.slides.forEach((sl, idx) => {
@@ -523,6 +618,7 @@ function renderGrid() {
     const meta = document.createElement('div'); meta.className = 'meta';
     meta.innerHTML = `<span class="num">${idx + 1}</span>`;
     meta.append(btn('✂ 나누기', () => openCut(idx), 'cut'));
+    meta.append(btn('✥ 배치', () => openArrange(idx), 'cut'));
     if (idx > 0) meta.append(btn('↑ 합치기', () => mergeUp(idx)));
     meta.append(btn('삭제', () => removeSlide(idx), 'del'));
     card.append(th, meta);
@@ -533,12 +629,8 @@ function btn(t, f, cls) { const b = document.createElement('button'); b.textCont
 
 function mergeUp(idx) {
   const a = S.slides[idx - 1], b = S.slides[idx];
-  const last = a.pieces[a.pieces.length - 1], first = b.pieces[0];
-  const pg = S.pages[last.p];
-  if (last.p === first.p && last.c === first.c && first.y0 >= last.y1 && first.y0 - last.y1 < pg.H * CFG.BIG_GAP) {
-    last.y1 = first.y1;  // 붙어 있으면 한 조각으로
-    a.pieces.push(...b.pieces.slice(1));
-  } else a.pieces.push(...b.pieces);
+  a.pieces.push(...b.pieces);
+  delete a.free;
   S.slides.splice(idx, 1); S.edited = true;
   renderGrid(); toast(`${idx}번과 ${idx + 1}번을 합쳤어요`);
 }
@@ -597,6 +689,146 @@ function openCut(idx) {
   $('#modal').classList.remove('hidden');
 }
 function closeCut() { $('#modal').classList.add('hidden'); }
+
+/* =========================================================
+   배치 창: 한 슬라이드 안의 블록(조각)을 끌어서 자유롭게 배치
+   좌표는 16:9 틀의 가로 길이를 1로 하는 비율 (x, y, w)
+   ========================================================= */
+const AR = { idx: -1, pos: [] };
+const MARGIN = 0.025;
+function piecesInfo(sl) {
+  return sl.pieces.map(pc => { const col = S.pages[pc.p].columns[pc.c]; return { w: col.x1 - col.x0, h: pc.y1 - pc.y0 }; });
+}
+function openArrange(idx) {
+  const sl = S.slides[idx];
+  AR.idx = idx;
+  if (sl.free) AR.pos = sl.free.map(f => ({ ...f }));
+  else {   // 지금 보이는 자동 배치에서 시작
+    const { items } = place({ ...sl, free: null }, 1, FRAME);
+    AR.pos = items.map(it => ({ x: it.X, y: it.Y, w: it.DW }));
+  }
+  $('#aTitle').textContent = `${idx + 1}번 슬라이드 배치`;
+  $('#aSide').disabled = $('#aStack').disabled = $('#aSame').disabled = sl.pieces.length < 2;
+  $('#arrange').classList.remove('hidden');
+  requestAnimationFrame(buildBoard);
+}
+function closeArrange() { $('#arrange').classList.add('hidden'); }
+function buildBoard() {
+  const sl = S.slides[AR.idx], board = $('#board');
+  board.querySelectorAll('.blk').forEach(b => b.remove());
+  const BW = board.clientWidth, info = piecesInfo(sl);
+  sl.pieces.forEach((pc, i) => {
+    const pg = S.pages[pc.p], col = pg.columns[pc.c], { w, h } = info[i];
+    const el = document.createElement('div'); el.className = 'blk'; el.dataset.i = i;
+    const cv = document.createElement('canvas');
+    const dw = Math.min(1400, Math.round(BW * 0.9)); // 미리보기 해상도
+    cv.width = dw; cv.height = Math.max(1, Math.round(dw * h / w));
+    cv.getContext('2d').drawImage(pg.canvas, col.x0, pc.y0, w, h, 0, 0, cv.width, cv.height);
+    el.innerHTML = `<span class="no">${i + 1}</span><span class="rs"></span>`;
+    el.prepend(cv);
+    board.append(el);
+    hookBlock(el, i);
+  });
+  paintBoard();
+}
+function paintBoard() {
+  const board = $('#board'), BW = board.clientWidth, info = piecesInfo(S.slides[AR.idx]);
+  board.querySelectorAll('.blk').forEach(el => {
+    const i = +el.dataset.i, f = AR.pos[i];
+    el.style.left = f.x * BW + 'px'; el.style.top = f.y * BW + 'px';
+    el.style.width = f.w * BW + 'px'; el.style.height = f.w * BW * info[i].h / info[i].w + 'px';
+  });
+}
+// 가장자리·가운데·다른 블록 모서리에 달라붙기
+function snap(i, f, info, mode) {
+  const BW = $('#board').clientWidth, th = 8 / BW;
+  const h = f.w * info[i].h / info[i].w;
+  const xs = [MARGIN, 0.5, 1 - MARGIN], ys = [MARGIN * 1.6, FRAME / 2, FRAME - MARGIN * 1.6];
+  AR.pos.forEach((o, j) => {
+    if (j === i) return;
+    const oh = o.w * info[j].h / info[j].w;
+    xs.push(o.x, o.x + o.w, o.x + o.w / 2); ys.push(o.y, o.y + oh, o.y + oh / 2);
+  });
+  let gx = null, gy = null;
+  if (mode === 'move') {
+    let best = th;
+    for (const t of xs) for (const [edge, off] of [[f.x, 0], [f.x + f.w, f.w], [f.x + f.w / 2, f.w / 2]])
+      if (Math.abs(edge - t) < best) { best = Math.abs(edge - t); f.x = t - off; gx = t; }
+    best = th;
+    for (const t of ys) for (const [edge, off] of [[f.y, 0], [f.y + h, h], [f.y + h / 2, h / 2]])
+      if (Math.abs(edge - t) < best) { best = Math.abs(edge - t); f.y = t - off; gy = t; }
+  } else {
+    let best = th;
+    for (const t of xs) if (Math.abs(f.x + f.w - t) < best) { best = Math.abs(f.x + f.w - t); f.w = t - f.x; gx = t; }
+  }
+  const gV = $('#gdV'), gH = $('#gdH');
+  gV.style.display = gx == null ? 'none' : 'block'; if (gx != null) gV.style.left = gx * BW + 'px';
+  gH.style.display = gy == null ? 'none' : 'block'; if (gy != null) gH.style.top = gy * BW + 'px';
+}
+function hookBlock(el, i) {
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const resize = e.target.classList.contains('rs');
+    const BW = $('#board').clientWidth, info = piecesInfo(S.slides[AR.idx]);
+    const start = { ...AR.pos[i] }, sx = e.clientX, sy = e.clientY;
+    el.setPointerCapture(e.pointerId); el.classList.add('drag');
+    const move = ev => {
+      const dx = (ev.clientX - sx) / BW, dy = (ev.clientY - sy) / BW;
+      const f = AR.pos[i];
+      if (resize) {
+        f.w = Math.max(0.12, start.w + dx);
+        f.w = Math.min(f.w, 1 - f.x);
+        snap(i, f, info, 'resize');
+      } else {
+        f.x = start.x + dx; f.y = start.y + dy;
+        snap(i, f, info, 'move');
+        const h = f.w * info[i].h / info[i].w;
+        f.x = Math.min(Math.max(f.x, 0), 1 - f.w); f.y = Math.min(Math.max(f.y, 0), Math.max(0, FRAME - h));
+      }
+      paintBoard();
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
+      el.classList.remove('drag'); $('#gdV').style.display = $('#gdH').style.display = 'none';
+    };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+  });
+}
+// 빠른 배치
+$('#aSide').onclick = () => {   // 좌우로 나란히: 글씨 크기 같게, 위쪽 정렬 → 각 문제 아래가 판서 공간
+  const info = piecesInfo(S.slides[AR.idx]), n = info.length, gap = 0.03;
+  const sumW = info.reduce((a, b) => a + b.w, 0);
+  let k = (1 - 2 * MARGIN - gap * (n - 1)) / sumW;
+  k = Math.min(k, ...info.map(b => (FRAME - 2 * MARGIN * 1.6) / b.h));
+  let x = MARGIN;
+  AR.pos = info.map(b => { const f = { x, y: MARGIN * 1.6, w: b.w * k }; x += b.w * k + gap; return f; });
+  paintBoard();
+};
+$('#aStack').onclick = () => {  // 위아래로: 왼쪽에 쌓고 오른쪽을 판서 공간으로
+  const info = piecesInfo(S.slides[AR.idx]), gap = 0.02;
+  const sumH = info.reduce((a, b) => a + b.h, 0), maxW = Math.max(...info.map(b => b.w));
+  const k = Math.min(0.6 / maxW, (FRAME - 2 * MARGIN * 1.6 - gap * (info.length - 1)) / sumH);
+  let y = MARGIN * 1.6;
+  AR.pos = info.map(b => { const f = { x: MARGIN, y, w: b.w * k }; y += b.h * k + gap; return f; });
+  paintBoard();
+};
+$('#aSame').onclick = () => {   // 모든 블록을 1번 블록과 같은 글씨 크기로
+  const info = piecesInfo(S.slides[AR.idx]), k = AR.pos[0].w / info[0].w;
+  AR.pos.forEach((f, i) => { f.w = Math.min(info[i].w * k, 1 - f.x); });
+  paintBoard();
+};
+$('#aAuto').onclick = () => {
+  const sl = S.slides[AR.idx]; delete sl.free; S.edited = true;
+  closeArrange(); renderGrid(); toast('자동 배치로 되돌렸어요');
+};
+$('#aCancel').onclick = closeArrange;
+$('#aDone').onclick = () => {
+  const sl = S.slides[AR.idx];
+  sl.free = AR.pos.map(f => ({ x: +f.x.toFixed(4), y: +f.y.toFixed(4), w: +f.w.toFixed(4) }));
+  S.edited = true; closeArrange(); renderGrid(); toast(`${AR.idx + 1}번 슬라이드 배치를 저장했어요`);
+};
+$('#arrange').onclick = e => { if (e.target.id === 'arrange') closeArrange(); };
+addEventListener('resize', () => { if (!$('#arrange').classList.contains('hidden')) paintBoard(); });
 $('#mClose').onclick = closeCut;
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeCut(); };
 function doSplit(idx, a, b) {
@@ -639,22 +871,30 @@ $('#playBtn').onclick = () => startShow(0);
    편집 내용 기억하기 (같은 PDF를 다시 올리면 자동 복원)
    ========================================================= */
 function saveLayout() {
-  if (S.exported || !S.key) return;
+  if (S.wholePage || !S.key) return;
   try {
     localStorage.setItem(S.key, JSON.stringify({
-      v: 1, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
-      slides: S.slides.map(sl => sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1])), t: Date.now(),
+      v: 2, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
+      slides: S.slides.map(sl => ({
+        ps: sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1]),
+        f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null,
+      })), t: Date.now(),
     }));
   } catch (e) {}
 }
 function loadLayout() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(S.key) || 'null'); } catch (e) {}
-  if (!d || d.v !== 1 || d.n !== S.pages.length) return false;
-  const ok = d.slides.every(ps => ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
+  if (!d || (d.v !== 1 && d.v !== 2) || d.n !== S.pages.length) return false;
+  const list = d.slides.map(x => Array.isArray(x) ? { ps: x, f: null } : x);   // v1 호환
+  const ok = list.every(x => x.ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
   if (!ok) return false;
   S.maxH = d.maxH; S.pos = d.pos; S.reserve = d.reserve; S.edited = !!d.edited;
-  S.slides = d.slides.map(ps => ({ id: uid++, pieces: ps.map(([p, c, y0, y1]) => ({ p, c, y0, y1 })) }));
+  S.slides = list.map(x => {
+    const sl = { id: uid++, pieces: x.ps.map(([p, c, y0, y1]) => ({ p, c, y0, y1 })) };
+    if (x.f && x.f.length === sl.pieces.length) sl.free = x.f.map(([fx, fy, fw]) => ({ x: fx, y: fy, w: fw }));
+    return sl;
+  });
   return true;
 }
 function applyModeUI() {
@@ -662,7 +902,9 @@ function applyModeUI() {
   [...$('#pos').children].forEach(x => x.classList.toggle('on', x.dataset.v === S.pos));
   [...$('#reserve').children].forEach(x => x.classList.toggle('on', +x.dataset.v === S.reserve));
   $('#reserve').style.display = S.pos === 'none' ? 'none' : '';
-  document.querySelectorAll('.bar label').forEach(l => l.classList.toggle('hidden', S.exported));
+  const labs = document.querySelectorAll('.bar label');
+  labs[0].classList.toggle('hidden', S.exported);     // 슬라이드 분량(자동 분할)은 원본에서만
+  labs[1].classList.toggle('hidden', S.wholePage);
 }
 function showBanner(text, withReset) {
   const b = $('#banner');
@@ -685,7 +927,8 @@ async function exportPdf(withInk) {
   const { PDFDocument, rgb, LineCapStyle } = PDFLib;
   const src = await PDFDocument.load(S.bytes, { ignoreEncryption: true });
   const out = await PDFDocument.create();
-  const PW = 960, PH = PW * ((screen.height / screen.width) || 9 / 16);
+  const PW = 960, PH = PW * FRAME;
+  const meta = { v: 1, pages: [] };   // 다시 올렸을 때 블록을 되살리기 위한 정보
   // 원본 페이지는 한 번만 넣고, 필요한 부분만 잘라서(clip) 보여줌 → 파일이 작음
   const full = new Map();
   const getFull = async pg => {
@@ -699,22 +942,21 @@ async function exportPdf(withInk) {
   const { pushGraphicsState, popGraphicsState, rectangle, clip, endPath } = PDFLib;
   for (const sl of S.slides) {
     const page = out.addPage([PW, PH]);
-    const L = layout(sl, PW, PH);
-    let y = 0;
-    for (let n = 0; n < sl.pieces.length; n++) {
-      const pc = sl.pieces[n], pg = S.pages[pc.p], col = pg.columns[pc.c];
-      if (n) y += pg.H * CFG.SPACER;
-      const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
+    const { L, items } = place(sl, PW, PH);
+    const r5 = v => +(v / PW).toFixed(5);
+    meta.pages.push({ r: items.map(it => [r5(it.X), r5(it.Y), r5(it.DW), r5(it.DH)]),
+                      f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null });
+    for (const it of items) {
+      const { pc, pg, col, w } = it;
       const { e, mb } = await getFull(pg);
       // 조각의 PDF 좌표(pt)
       const [ax, ay] = pg.vp.convertToPdfPoint(col.x0, pc.y0), [bx, by] = pg.vp.convertToPdfPoint(col.x1, pc.y1);
       const left = Math.min(ax, bx), bottom = Math.min(ay, by), right = Math.max(ax, bx), top = Math.max(ay, by);
-      const k = (w * L.s) / (right - left);             // pt → 출력 pt
-      const X = L.x, Y = PH - (L.y + (y + h) * L.s), DW = w * L.s, DH = h * L.s;
+      const k = it.DW / (right - left);                 // 원본 pt → 출력 pt
+      const X = it.X, Y = PH - (it.Y + it.DH), DW = it.DW, DH = it.DH;
       page.pushOperators(pushGraphicsState(), rectangle(X, Y, DW, DH), clip(), endPath());
       page.drawPage(e, { x: X - (left - mb.x) * k, y: Y - (bottom - mb.y) * k, width: mb.width * k, height: mb.height * k });
       page.pushOperators(popGraphicsState());
-      y += h;
     }
     if (withInk) {
       for (const st of (S.ink[sl.id] || [])) {
@@ -728,6 +970,8 @@ async function exportPdf(withInk) {
     }
   }
   out.setTitle(S.name); out.setKeywords(['print-slides']); out.setSubject('print-slides');
+  // 판서가 들어간 저장본은 블록으로 다시 나누면 판서가 사라지므로 블록 정보를 넣지 않음
+  if (!withInk) out.getInfoDict().set(PDFLib.PDFName.of('PrintSlides'), PDFLib.PDFHexString.fromText(JSON.stringify(meta)));
   const bytes = await out.save();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
@@ -766,7 +1010,7 @@ function goFull() { const el = document.documentElement; if (!document.fullscree
 // 화면(W×H)에 슬라이드 배치. 판서 공간(오른쪽/아래)은 비워 둠
 function layout(sl, W = innerWidth, H = innerHeight) {
   const g = geom(sl);
-  if (S.exported) {
+  if (S.wholePage) {
     const s = Math.min(W / g.w, H / g.h), cw = g.w * s, ch = g.h * s;
     return { x: (W - cw) / 2, y: (H - ch) / 2, s, cw, ch, ws: null };
   }
@@ -784,30 +1028,27 @@ function layout(sl, W = innerWidth, H = innerHeight) {
 async function renderSlide(i) {
   const sl = S.slides[i]; if (!sl) return null;
   const dpr = window.devicePixelRatio || 1;
-  const L = layout(sl);
-  const key = `${sl.id}|${innerWidth}x${innerHeight}|${dpr}|${S.pos}${S.reserve}`;
+  const W = innerWidth, H = innerHeight;
+  const { L, items } = place(sl, W, H);
+  const key = `${sl.id}|${W}x${H}|${dpr}|${S.pos}${S.reserve}`;
   if (cache.has(key)) return { cv: cache.get(key), L };
-  const k = L.s * dpr;
   const cv = document.createElement('canvas');
-  cv.width = Math.ceil(L.cw * dpr); cv.height = Math.ceil(L.ch * dpr);
+  cv.width = Math.ceil(W * dpr); cv.height = Math.ceil(H * dpr);
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  let y = 0;
-  for (let n = 0; n < sl.pieces.length; n++) {
-    const pc = sl.pieces[n], pg = S.pages[pc.p], col = pg.columns[pc.c];
-    if (n) y += pg.H * CFG.SPACER;
-    const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
+  for (const it of items) {
+    const { pc, pg, col } = it;
+    const k = it.DW / it.w * dpr;                      // 분석 px → 화면 실제 px
     const tmp = document.createElement('canvas');
-    tmp.width = Math.ceil(w * k); tmp.height = Math.ceil(h * k);
+    tmp.width = Math.max(1, Math.ceil(it.w * k)); tmp.height = Math.max(1, Math.ceil(it.h * k));
     const tctx = tmp.getContext('2d');
     tctx.fillStyle = '#fff'; tctx.fillRect(0, 0, tmp.width, tmp.height);
     const vp = pg.page.getViewport({ scale: pg.scale * k });
     await pg.page.render({ canvasContext: tctx, viewport: vp, transform: [1, 0, 0, 1, -col.x0 * k, -pc.y0 * k] }).promise;
-    ctx.drawImage(tmp, 0, Math.round(y * k));
-    y += h;
+    ctx.drawImage(tmp, Math.round(it.X * dpr), Math.round(it.Y * dpr));
   }
   cache.set(key, cv);
-  if (cache.size > 12) cache.delete(cache.keys().next().value);
+  if (cache.size > 8) cache.delete(cache.keys().next().value);
   return { cv, L };
 }
 
@@ -820,7 +1061,7 @@ async function draw() {
   stage.width = innerWidth * dpr; stage.height = innerHeight * dpr;
   const ctx = stage.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, stage.width, stage.height);
-  ctx.drawImage(r.cv, Math.round(r.L.x * dpr), Math.round(r.L.y * dpr));
+  ctx.drawImage(r.cv, 0, 0);
   $('#loading').style.display = 'none';
   S.L = r.L;
   redrawInk();
@@ -912,7 +1153,7 @@ setColor('#e0262b'); setPen(false);
 /* ---------- 키보드 · 프레젠터 ---------- */
 document.addEventListener('keydown', e => {
   if (show.classList.contains('hidden')) {
-    if (e.key === 'Escape') closeCut();
+    if (e.key === 'Escape') { closeCut(); closeArrange(); }
     if (e.key === 'F5' && S.slides.length) { e.preventDefault(); startShow(e.shiftKey ? S.cur : 0); }
     return;
   }
