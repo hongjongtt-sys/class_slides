@@ -49,9 +49,26 @@ button{font:inherit;cursor:pointer}
 .card.sel{outline:3px solid var(--accent);outline-offset:-1px}
 .card .thumb{position:relative;background:#f7f8fa;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;padding:8px;cursor:zoom-in}
 .card .thumb canvas{max-width:100%;max-height:100%;box-shadow:0 0 0 1px #e3e6eb;border-radius:4px}
-.splitmode .card .thumb{cursor:row-resize}
-.card .thumb .guide{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--warn);pointer-events:none;display:none}
-.splitmode .card .thumb:hover .guide{display:block}
+.card .thumb{cursor:pointer}
+.card .thumb .play{position:absolute;inset:auto auto 12px 50%;transform:translateX(-50%);background:rgba(31,78,121,.92);color:#fff;font-size:12px;font-weight:600;padding:5px 11px;border-radius:20px;opacity:0;transition:.15s;pointer-events:none;white-space:nowrap}
+.card .thumb:hover .play{opacity:1}
+.card .meta button.cut{color:var(--accent);border-color:#c9d8e8}
+
+/* 나누기 창 */
+#modal{position:fixed;inset:0;z-index:30;background:rgba(20,25,35,.55);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:28px 16px}
+.mbox{background:#fff;border-radius:16px;width:min(1100px,100%);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.mhead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.mhead b{font-size:16px}
+.mhead span{color:var(--muted);font-size:13px;margin-right:auto}
+.mbody{padding:22px 22px 26px 64px}
+.mwrap{position:relative;line-height:0}
+.mwrap canvas{width:100%;height:auto;box-shadow:0 0 0 1px var(--line)}
+.cut-at{position:absolute;left:-52px;right:0;height:18px;transform:translateY(-9px);cursor:pointer;display:flex;align-items:center}
+.cut-at .sc{width:34px;height:18px;border-radius:9px;background:#eef3f9;color:var(--accent);font-size:12px;line-height:18px;text-align:center;flex:none;border:1px solid #c9d8e8}
+.cut-at .ln{flex:1;margin-left:18px;border-top:2px dashed transparent}
+.cut-at:hover .sc{background:var(--warn);color:#fff;border-color:var(--warn)}
+.cut-at:hover .ln{border-top-color:var(--warn)}
+.cut-at:hover::after{content:'여기서 나누기';position:absolute;right:0;top:-22px;background:var(--warn);color:#fff;font-size:12px;line-height:1;padding:5px 8px;border-radius:6px}
 .card .meta{display:flex;align-items:center;gap:6px;padding:8px 10px;border-top:1px solid var(--line);font-size:13px}
 .card .num{font-weight:700;color:var(--accent);margin-right:auto}
 .card .meta button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:var(--ink)}
@@ -105,22 +122,30 @@ button{font:inherit;cursor:pointer}
     <div class="title" id="docTitle"></div>
     <label>슬라이드 분량
       <span style="font-size:12px">잘게</span>
-      <input type="range" id="size" min="16" max="60" step="2" value="28">
+      <input type="range" id="size" min="16" max="70" step="2" value="46">
       <span style="font-size:12px">크게</span>
     </label>
-    <label>아래 판서 공간
-      <span class="seg" id="reserve"><button data-v="0">없음</button><button data-v="0.3">30%</button><button data-v="0.4" class="on">40%</button><button data-v="0.5">50%</button></span>
+    <label>판서 공간
+      <span class="seg" id="pos"><button data-v="right" class="on">오른쪽</button><button data-v="bottom">아래</button><button data-v="none">없음</button></span>
+      <span class="seg" id="reserve"><button data-v="0.3">30%</button><button data-v="0.4" class="on">40%</button><button data-v="0.5">50%</button></span>
     </label>
-    <button class="btn ghost" id="splitBtn">✂ 나누기 모드</button>
     <button class="btn ghost" id="newBtn">다른 파일</button>
     <button class="btn" id="playBtn">▶ 발표 시작</button>
   </div>
   <div class="help" id="help">
-    썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>위와 합치기</b>로 앞 슬라이드에 붙이고, <b>✂ 나누기 모드</b>에서 썸네일의 자를 위치를 클릭하면 둘로 나눕니다.
+    썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙입니다.
     발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
   </div>
   <div id="grid"></div>
 </section>
+
+<!-- 나누기 창 -->
+<div id="modal" class="hidden">
+  <div class="mbox">
+    <div class="mhead"><b id="mTitle"></b><span>자르고 싶은 줄 사이의 <b>✂</b>를 누르세요</span><button class="btn ghost" id="mClose">닫기</button></div>
+    <div class="mbody"><div class="mwrap" id="mWrap"></div></div>
+  </div>
+</div>
 
 <!-- 3. 발표 -->
 <section id="show" class="hidden">
@@ -161,6 +186,8 @@ const CFG = {
   SPACER:    0.022,   // 떨어진 조각을 한 슬라이드에 이어붙일 때 간격
   PAD:       0.008,   // 슬라이드 위아래 여유
 };
+// 문제·예제 등 새 문항이 시작되는 줄 → 항상 새 슬라이드
+const PROBLEM = /^\s*(\[?\s*(예\s*제|문\s*제|유\s*제|확인\s*하기|추가)|Q\s*\.|\d{1,2}\s*\.(?!\d))/;
 // 새 문항/새 항목으로 시작하는 줄 (앞 슬라이드에 붙이지 않음)
 const NEW_ITEM = /^\s*(\[|【|<|＜|〈|▶|■|●|◆|◎|★|Q\s*[\.\)]|예\s*제|문\s*제|유\s*제|확인|추가|생각|스스로|단원|개념|정리|\d{1,2}\s*[\.\)]|0\d)/;
 
@@ -178,7 +205,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const $ = s => document.querySelector(s);
 const S = {
   pdf: null, name: '', pages: [], slides: [], cur: 0,
-  maxH: 0.28, reserve: 0.4, splitMode: false, edited: false,
+  maxH: 0.46, pos: 'right', reserve: 0.4, edited: false,
   pen: false, color: '#e0262b', ink: {}, // ink[slideId] = strokes
 };
 let uid = 1;
@@ -315,13 +342,17 @@ async function analyzePage(no) {
   return { no, page, scale, W, H, canvas: cv, columns };
 }
 
+// 구간 안에서 글자가 있는 첫 줄의 텍스트 (표 테두리처럼 글자 없는 줄은 건너뜀)
 function firstText(col, y0, y1) {
-  const ln = col.lines.find(l => l.s >= y0 - 1 && l.s < y1);
-  if (!ln) return '';
-  const h = ln.e - ln.s;
-  return col.texts
-    .filter(t => t.y >= ln.s - 1 && t.y <= ln.e + h * 0.4)
-    .sort((a, b) => a.x - b.x).map(t => t.s).join('').trim();
+  for (const ln of col.lines) {
+    if (ln.s < y0 - 1 || ln.s >= y1) continue;
+    const h = ln.e - ln.s;
+    const t = col.texts
+      .filter(t => t.y >= ln.s - 1 && t.y <= ln.e + h * 0.4)
+      .sort((a, b) => a.x - b.x).map(t => t.s).join('').trim();
+    if (t) return t;
+  }
+  return '';
 }
 
 /* =========================================================
@@ -338,12 +369,13 @@ function buildSlides() {
         const last = paras[paras.length - 1];
         if (last && ln.s - last.e < H * CFG.SMALL_GAP && !ln.bar) { last.e = ln.e; continue; }
         const gap = last ? ln.s - last.e : 0;
-        paras.push({ s: ln.s, e: ln.e, gap, forced: ln.bar, big: gap >= H * CFG.BIG_GAP });
+        const item = !ln.bar && PROBLEM.test(firstText(col, ln.s, ln.e));
+        paras.push({ s: ln.s, e: ln.e, gap, forced: ln.bar || item, item, big: gap >= H * CFG.BIG_GAP });
       }
       // 큰 여백·제목 바에서 자르기
       const chunks = [];
       for (const p of paras) {
-        if (!chunks.length || p.big || p.forced) chunks.push({ ps: [p], soft: !p.big, big: p.big });
+        if (!chunks.length || p.big || p.forced) chunks.push({ ps: [p], soft: !p.big, big: p.big, item: p.item });
         else chunks[chunks.length - 1].ps.push(p);
       }
       // 너무 긴 덩어리는 가장 넓은 여백에서 재귀 분할
@@ -363,14 +395,14 @@ function buildSlides() {
       for (const ch of chunks) {
         split(ch.ps).forEach((ps, i) => out.push({
           s: ps[0].s, e: ps[ps.length - 1].e,
-          soft: i === 0 ? ch.soft : true, big: i === 0 ? ch.big : false,
+          soft: i === 0 ? ch.soft : true, big: i === 0 ? ch.big : false, item: i === 0 && ch.item,
         }));
       }
       // 작은 덩어리(제목 등)는 바로 뒤와 합치기
       const fwd = [];
       for (let i = 0; i < out.length; i++) {
         const cur = { ...out[i] };
-        while (i + 1 < out.length && cur.e - cur.s < H * CFG.TINY && out[i + 1].soft && !out[i + 1].big
+        while (i + 1 < out.length && cur.e - cur.s < H * CFG.TINY && out[i + 1].soft && !out[i + 1].big && !(cur.item && out[i + 1].item)
                && out[i + 1].e - cur.s <= maxH * 1.15) { cur.e = out[++i].e; }
         fwd.push(cur);
       }
@@ -421,12 +453,14 @@ function drawThumb(sl, cv, maxW) {
   cv.width = TW; cv.height = TH;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, TW, TH);
-  if (S.reserve > 0) {   // 판서 공간 표시
-    ctx.fillStyle = '#f3f7fb'; ctx.fillRect(0, L.bottom, TW, TH - L.bottom);
-    ctx.strokeStyle = '#b9cbe0'; ctx.setLineDash([8, 6]); ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, L.bottom); ctx.lineTo(TW, L.bottom); ctx.stroke(); ctx.setLineDash([]);
+  if (L.ws) {   // 판서 공간 표시
+    const w = L.ws;
+    ctx.fillStyle = '#f3f7fb'; ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = '#b9cbe0'; ctx.setLineDash([8, 6]); ctx.lineWidth = 2; ctx.beginPath();
+    if (S.pos === 'right') { ctx.moveTo(w.x, 0); ctx.lineTo(w.x, TH); } else { ctx.moveTo(0, w.y); ctx.lineTo(TW, w.y); }
+    ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = '#8aa3bf'; ctx.font = '600 18px Pretendard, sans-serif';
-    ctx.fillText('판서 공간', 14, L.bottom + 28);
+    ctx.fillText('판서 공간', w.x + 14, w.y + 30);
   }
   ctx.save(); ctx.translate(L.x, L.y);
   let y = 0; const map = [];
@@ -454,21 +488,13 @@ function renderGrid() {
     const th = document.createElement('div'); th.className = 'thumb';
     const cv = document.createElement('canvas');
     drawThumb(sl, cv, 640);
-    const guide = document.createElement('div'); guide.className = 'guide';
-    th.append(cv, guide);
-    th.onmousemove = e => {
-      const r = cv.getBoundingClientRect(), tr = th.getBoundingClientRect();
-      guide.style.top = Math.min(Math.max(e.clientY, r.top), r.bottom) - tr.top + 'px';
-    };
-    th.onclick = e => {
-      if (S.splitMode) {
-        const r = cv.getBoundingClientRect();
-        splitAt(idx, (e.clientY - r.top) * (cv.height / r.height));
-      } else startShow(idx);
-    };
+    const play = document.createElement('div'); play.className = 'play'; play.textContent = '▶ 여기부터 발표';
+    th.append(cv, play);
+    th.onclick = () => startShow(idx);
     const meta = document.createElement('div'); meta.className = 'meta';
     meta.innerHTML = `<span class="num">${idx + 1}</span>`;
-    if (idx > 0) meta.append(btn('↑ 위와 합치기', () => mergeUp(idx)));
+    meta.append(btn('✂ 나누기', () => openCut(idx), 'cut'));
+    if (idx > 0) meta.append(btn('↑ 합치기', () => mergeUp(idx)));
     meta.append(btn('삭제', () => removeSlide(idx), 'del'));
     card.append(th, meta);
     grid.append(card);
@@ -492,31 +518,58 @@ function removeSlide(idx) {
   if (S.cur >= S.slides.length) S.cur = Math.max(0, S.slides.length - 1);
   renderGrid(); toast(`${idx + 1}번 슬라이드를 뺐어요`);
 }
-function splitAt(idx, yThumb) {
+/* 나누기 창: 슬라이드를 크게 보여주고, 자를 수 있는 줄 사이마다 ✂ 표시 */
+function openCut(idx) {
   const sl = S.slides[idx];
-  const cv = $('#grid').children[idx].querySelector('canvas');
-  const m = cv._map, k = cv._k;
-  // 조각 경계를 클릭했으면 그 경계에서 나눔
-  let hit = m.find(r => yThumb >= r.top && yThumb <= r.bot);
-  if (!hit) {
-    const i = m.findIndex(r => yThumb < r.top);
-    if (i > 0) return doSplit(idx, sl.pieces.slice(0, i), sl.pieces.slice(i));
-    return;
-  }
-  const pc = sl.pieces[hit.i], pg = S.pages[pc.p], col = pg.columns[pc.c];
-  let y = pc.y0 + (yThumb - hit.top) / k;
-  // 가장 가까운 줄 사이 여백으로 맞춤
-  const gaps = [];
-  for (let j = 1; j < col.lines.length; j++) {
-    const g = (col.lines[j - 1].e + col.lines[j].s) / 2;
-    if (g > pc.y0 + 4 && g < pc.y1 - 4) gaps.push(g);
-  }
-  if (gaps.length) y = gaps.reduce((a, g) => Math.abs(g - y) < Math.abs(a - y) ? g : a);
-  y = Math.round(y);
-  if (y <= pc.y0 + 4 || y >= pc.y1 - 4) return toast('자를 수 있는 위치가 아니에요');
-  const A = { ...pc, y1: y }, B = { ...pc, y0: y };
-  doSplit(idx, [...sl.pieces.slice(0, hit.i), A], [B, ...sl.pieces.slice(hit.i + 1)]);
+  const wrap = $('#mWrap'); wrap.innerHTML = '';
+  $('#mTitle').textContent = `${idx + 1}번 슬라이드 나누기`;
+  const g = geom(sl);
+  const targetW = Math.min(1000, innerWidth - 120);
+  const k = targetW / g.w;
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(g.w * k); cv.height = Math.round(g.h * k);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  wrap.append(cv);
+  const cuts = [];
+  let y = 0;
+  sl.pieces.forEach((pc, i) => {
+    const pg = S.pages[pc.p], col = pg.columns[pc.c];
+    if (i) { cuts.push({ top: (y + pg.H * CFG.SPACER / 2) * k, a: sl.pieces.slice(0, i), b: sl.pieces.slice(i) }); y += pg.H * CFG.SPACER; }
+    const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
+    ctx.drawImage(pg.canvas, col.x0, pc.y0, w, h, 0, y * k, w * k, h * k);
+    // 이 조각 안의 줄 사이 여백 (분수 위아래처럼 아주 좁은 틈은 제외)
+    const ls = col.lines.filter(l => l.e > pc.y0 && l.s < pc.y1);
+    for (let j = 1; j < ls.length; j++) {
+      const gap = ls[j].s - ls[j - 1].e;
+      if (gap < pg.H * 0.009) continue;
+      const cy = Math.round((ls[j - 1].e + ls[j].s) / 2);
+      if (cy <= pc.y0 + 4 || cy >= pc.y1 - 4) continue;
+      cuts.push({
+        top: (y + cy - pc.y0) * k,
+        a: [...sl.pieces.slice(0, i), { ...pc, y1: cy }],
+        b: [{ ...pc, y0: cy }, ...sl.pieces.slice(i + 1)],
+      });
+    }
+    y += h;
+  });
+  // 표시 크기 기준으로 ✂ 배치
+  requestAnimationFrame(() => {
+    const ratio = cv.getBoundingClientRect().height / cv.height;
+    cuts.forEach(c => {
+      const el = document.createElement('div'); el.className = 'cut-at';
+      el.style.top = c.top * ratio + 'px';
+      el.innerHTML = '<span class="sc">✂</span><span class="ln"></span>';
+      el.onclick = () => { closeCut(); doSplit(idx, c.a, c.b); };
+      wrap.append(el);
+    });
+    if (!cuts.length) toast('이 슬라이드는 더 나눌 곳이 없어요');
+  });
+  $('#modal').classList.remove('hidden');
 }
+function closeCut() { $('#modal').classList.add('hidden'); }
+$('#mClose').onclick = closeCut;
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeCut(); };
 function doSplit(idx, a, b) {
   S.slides.splice(idx, 1, { id: uid++, pieces: a }, { id: uid++, pieces: b });
   S.edited = true; renderGrid(); toast(`${idx + 1}번을 둘로 나눴어요`);
@@ -537,12 +590,18 @@ $('#reserve').onclick = e => {
   [...$('#reserve').children].forEach(x => x.classList.toggle('on', x === b));
   renderGrid();
 };
-$('#splitBtn').onclick = () => {
-  S.splitMode = !S.splitMode;
-  $('#editor').classList.toggle('splitmode', S.splitMode);
-  $('#splitBtn').textContent = S.splitMode ? '✂ 나누기 모드 끄기' : '✂ 나누기 모드';
-  $('#splitBtn').classList.toggle('ghost', !S.splitMode);
-  if (S.splitMode) toast('썸네일에서 자를 위치를 클릭하세요');
+// 판서 위치에 따라 글씨가 커지는 슬라이드 분량이 달라서 기본 분량도 같이 바꿈
+const SIZE_FOR = { right: 46, bottom: 28, none: 40 };
+$('#pos').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.pos = b.dataset.v;
+  [...$('#pos').children].forEach(x => x.classList.toggle('on', x === b));
+  $('#reserve').style.display = S.pos === 'none' ? 'none' : '';
+  if (!S.edited) {
+    $('#size').value = SIZE_FOR[S.pos]; S.maxH = SIZE_FOR[S.pos] / 100;
+    buildSlides(); S.cur = 0;
+  }
+  renderGrid();
 };
 $('#newBtn').onclick = () => { S.pdf && S.pdf.destroy(); S.pdf = null; S.pages = []; S.slides = []; $('#file').value = ''; showView('upload'); };
 $('#playBtn').onclick = () => startShow(0);
@@ -572,23 +631,25 @@ function endShow() {
 }
 function goFull() { const el = document.documentElement; if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {}); }
 
-// 화면(W×H)에 슬라이드를 배치: 위쪽은 내용, 아래 S.reserve 비율은 판서용으로 비워 둠
+// 화면(W×H)에 슬라이드 배치. 판서 공간(오른쪽/아래)은 비워 둠
 function layout(sl, W = innerWidth, H = innerHeight) {
   const g = geom(sl);
-  const mx = W * 0.04, my = H * 0.045;
-  const bottom = S.reserve > 0 ? H * (1 - S.reserve) : H - my;
-  const s = Math.min((W - 2 * mx) / g.w, (bottom - my) / g.h);
+  const mx = W * 0.03, my = H * 0.045;
+  let ax0 = mx, ax1 = W - mx, ay0 = my, ay1 = H - my, ws = null;
+  if (S.pos === 'right') { ax1 = W * (1 - S.reserve) - W * 0.01; ws = { x: W * (1 - S.reserve), y: 0, w: W * S.reserve, h: H }; }
+  if (S.pos === 'bottom') { ay1 = H * (1 - S.reserve); ws = { x: 0, y: ay1, w: W, h: H - ay1 }; }
+  const s = Math.min((ax1 - ax0) / g.w, (ay1 - ay0) / g.h);
   const cw = g.w * s, ch = g.h * s;
-  const x = (W - cw) / 2;
-  const y = S.reserve > 0 ? my : (H - ch) / 2;
-  return { x, y, s, cw, ch, bottom };
+  const x = S.pos === 'right' ? ax0 : ax0 + ((ax1 - ax0) - cw) / 2;
+  const y = S.pos === 'none' ? ay0 + ((ay1 - ay0) - ch) / 2 : ay0;
+  return { x, y, s, cw, ch, ws };
 }
 
 async function renderSlide(i) {
   const sl = S.slides[i]; if (!sl) return null;
   const dpr = window.devicePixelRatio || 1;
   const L = layout(sl);
-  const key = `${sl.id}|${innerWidth}x${innerHeight}|${dpr}|${S.reserve}`;
+  const key = `${sl.id}|${innerWidth}x${innerHeight}|${dpr}|${S.pos}${S.reserve}`;
   if (cache.has(key)) return { cv: cache.get(key), L };
   const k = L.s * dpr;
   const cv = document.createElement('canvas');
@@ -714,6 +775,7 @@ setColor('#e0262b'); setPen(false);
 /* ---------- 키보드 · 프레젠터 ---------- */
 document.addEventListener('keydown', e => {
   if (show.classList.contains('hidden')) {
+    if (e.key === 'Escape') closeCut();
     if (e.key === 'F5' && S.slides.length) { e.preventDefault(); startShow(e.shiftKey ? S.cur : 0); }
     return;
   }
