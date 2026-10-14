@@ -215,6 +215,16 @@ button{font:inherit;cursor:pointer}
   </form>
 </div>
 
+<!-- 학기 옮기기 창 -->
+<div class="dlg hidden" id="semDlg">
+  <div class="box">
+    <h3 id="sTitle">학기 옮기기</h3>
+    <p>목록에서 어느 학기에 묶일지 바꿉니다. 학기 단위로 삭제할 때 이 학기를 기준으로 지워져요.</p>
+    <select id="sSel" style="width:100%;font:inherit;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px"></select>
+    <div class="row"><button id="sCancel">취소</button><button class="pri" id="sOk">옮기기</button></div>
+  </div>
+</div>
+
 <!-- 삭제 창 -->
 <div class="dlg hidden" id="delDlg">
   <div class="box">
@@ -1037,6 +1047,7 @@ function renderLib() {
       h += `<div class="deck"><div class="t"><b>${esc(d.title)}${d.hasPdf ? '' : '<span class="tag">편집 구성만 남음</span>'}</b>`
         + `<span>${d.slides || 0}장 · ${d.hasPdf ? fmtMB(d.size || 0) : '원본 PDF를 올리면 구성이 되살아나요'} · ${fmtDate(d.updatedAt)} 수정</span></div>`
         + `<button class="open" data-open="${d.id}" ${d.hasPdf ? '' : 'disabled'}>▶ 열기</button>`
+        + `<button data-move="${d.id}">학기 옮기기</button>`
         + `<button class="del" data-del="${d.id}">삭제</button></div>`;
     }
     h += '</div>';
@@ -1045,6 +1056,7 @@ function renderLib() {
   $('#libOut').onclick = async () => { cloudFlush(); await fbAuth.signOut(); toast('로그아웃했어요'); };
   el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openDeck(CL.decks.find(d => d.id === b.dataset.open)));
   el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => askDelete([CL.decks.find(d => d.id === b.dataset.del)]));
+  el.querySelectorAll('[data-move]').forEach(b => b.onclick = () => askMove(CL.decks.find(d => d.id === b.dataset.move)));
   el.querySelectorAll('[data-sem]').forEach(b => b.onclick = () => askDelete(CL.decks.filter(d => d.semester === b.dataset.sem), b.dataset.sem));
 }
 
@@ -1140,6 +1152,31 @@ function cloudUI() {
   else setCloud('');
 }
 $('#cloudBtn').onclick = () => CL.user ? cloudSaveNew() : openLogin();
+
+/* ---------- 학기 옮기기 ---------- */
+let MOVE = null;
+function askMove(d) {
+  if (!d) return;
+  MOVE = d;
+  const y = new Date().getFullYear(), opts = new Set(CL.decks.map(x => x.semester));
+  for (let yy = y - 1; yy <= y + 1; yy++) { opts.add(`${yy}-1학기`); opts.add(`${yy}-2학기`); }
+  opts.add(semesterOf());
+  const now = semesterOf();
+  $('#sSel').innerHTML = [...opts].sort().reverse()
+    .map(o => `<option value="${esc(o)}" ${o === d.semester ? 'selected' : ''}>${esc(o)}${o === now ? ' (이번 학기)' : ''}${o === d.semester ? ' — 지금' : ''}</option>`).join('');
+  $('#sTitle').textContent = `"${d.title}" 학기 옮기기`;
+  $('#semDlg').classList.remove('hidden');
+}
+$('#sCancel').onclick = () => $('#semDlg').classList.add('hidden');
+$('#sOk').onclick = async () => {
+  const d = MOVE, sem = $('#sSel').value;
+  $('#semDlg').classList.add('hidden');
+  if (!d || sem === d.semester) return;
+  try {
+    await decksRef().doc(d.id).update({ semester: sem });
+    d.semester = sem; renderLib(); toast(`${sem}(으)로 옮겼어요`);
+  } catch (e) { console.error(e); toast('학기를 옮기지 못했어요'); }
+};
 
 /* ---------- 삭제 ---------- */
 async function deleteChunks(ref) {
@@ -1476,7 +1513,7 @@ setColor('#e0262b'); setPen(false);
 /* ---------- 키보드 · 프레젠터 ---------- */
 document.addEventListener('keydown', e => {
   if (show.classList.contains('hidden')) {
-    if (e.key === 'Escape') { closeCut(); closeArrange(); $('#loginDlg').classList.add('hidden'); $('#delDlg').classList.add('hidden'); }
+    if (e.key === 'Escape') { closeCut(); closeArrange(); $('#loginDlg').classList.add('hidden'); $('#delDlg').classList.add('hidden'); $('#semDlg').classList.add('hidden'); }
     if (e.key === 'F5' && S.slides.length) { e.preventDefault(); startShow(e.shiftKey ? S.cur : 0); }
     return;
   }
