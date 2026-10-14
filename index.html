@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#f4f5f7; --panel:#fff; --ink:#1d2330; --muted:#6b7280; --line:#e3e6eb;
@@ -19,8 +22,44 @@ button{font:inherit;cursor:pointer}
 .hidden{display:none!important}
 
 /* ---------- 업로드 ---------- */
-#upload{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px}
-.drop{width:min(640px,100%);background:var(--panel);border:2px dashed #c4ccd8;border-radius:18px;padding:56px 32px;text-align:center;transition:.15s}
+#upload{min-height:100%;display:flex;flex-direction:column;align-items:center;gap:18px;padding:32px 16px}
+.drop{width:min(900px,100%);background:var(--panel);border:2px dashed #c4ccd8;border-radius:18px;padding:36px 32px;text-align:center;transition:.15s}
+/* 내 수업 슬라이드 */
+.lib{width:min(900px,100%);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px 22px}
+.lib-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lib-h h2{margin:0;font-size:19px;letter-spacing:-.02em;margin-right:auto}
+.lib-h .who{color:var(--muted);font-size:13px}
+.lib-h button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:13px}
+.usage{margin-top:12px;font-size:13px;color:var(--muted)}
+.usage .bar2{height:6px;border-radius:3px;background:#eef0f3;margin-top:6px;overflow:hidden}
+.usage .bar2 i{display:block;height:100%;background:var(--accent)}
+.sem{margin-top:18px}
+.sem-h{display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.sem-h b{font-size:15px;margin-right:auto}
+.sem-h button{border:1px solid #f3c5c0;color:var(--warn);background:#fff;border-radius:8px;padding:4px 10px;font-size:12px}
+.deck{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f2f5}
+.deck .t{flex:1;min-width:0}
+.deck .t b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck .t span{font-size:12px;color:var(--muted)}
+.deck .tag{font-size:11px;color:#8a5a00;background:#fff4dc;border-radius:5px;padding:1px 6px;margin-left:6px}
+.deck button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:13px;white-space:nowrap}
+.deck button.open{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.deck button.open:disabled{background:#c9d3de;border-color:#c9d3de;cursor:default}
+.deck button.del:hover{color:var(--warn);border-color:#f3c5c0}
+.empty{color:var(--muted);font-size:14px;padding:16px 0 4px}
+.cloud{font-size:13px;color:var(--muted);white-space:nowrap}
+.cloud.ok{color:#1c7c43}
+/* 작은 창 */
+.dlg{position:fixed;inset:0;z-index:40;background:rgba(20,25,35,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.dlg .box{background:#fff;border-radius:16px;width:min(420px,100%);padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.dlg h3{margin:0 0 8px;font-size:17px}
+.dlg p{margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.6}
+.dlg input{width:100%;font:inherit;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px}
+.dlg .row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:6px}
+.dlg .row button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 14px;font-size:14px}
+.dlg .row button.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.dlg .row button.dng{background:var(--warn);border-color:var(--warn);color:#fff;font-weight:600}
+.dlg .err{color:var(--warn);font-size:13px;min-height:1.2em}
 .drop.over{border-color:var(--accent);background:var(--soft)}
 .drop h1{margin:0 0 8px;font-size:26px;letter-spacing:-.02em}
 .drop p{margin:6px 0;color:var(--muted);line-height:1.6}
@@ -122,6 +161,7 @@ button{font:inherit;cursor:pointer}
 
 <!-- 1. 업로드 -->
 <section id="upload">
+  <div class="lib" id="lib"></div>
   <div class="drop" id="drop">
     <h1>학습프린트 → 슬라이드</h1>
     <p>PDF 파일을 끌어다 놓거나 아래 버튼으로 선택하세요.<br>내용 덩어리별로 자동으로 잘라 슬라이드를 만듭니다.</p>
@@ -131,7 +171,7 @@ button{font:inherit;cursor:pointer}
     <div id="error"></div>
     <div class="note">
       <b>한글(HWP) 파일은?</b> 한글에서 <b>파일 → PDF로 저장하기</b> 후 올려주세요. 수식이 깨지지 않습니다.<br>
-      <b>저장되나요?</b> 아니요. 파일은 이 브라우저 안에서만 처리되고 어디에도 업로드되지 않습니다. 탭을 닫으면 사라집니다.
+      <b>저장되나요?</b> 로그인하고 <b>☁ 저장</b>을 누른 수업만 내 계정에 저장됩니다. 그 밖의 파일은 이 브라우저 안에서만 처리돼요.
     </div>
   </div>
 </section>
@@ -149,6 +189,8 @@ button{font:inherit;cursor:pointer}
       <span class="seg" id="pos"><button data-v="right" class="on">오른쪽</button><button data-v="bottom">아래</button><button data-v="none">없음</button></span>
       <span class="seg" id="reserve"><button data-v="0.3">30%</button><button data-v="0.4" class="on">40%</button><button data-v="0.5">50%</button></span>
     </label>
+    <span class="cloud" id="cloudState"></span>
+    <button class="btn ghost" id="cloudBtn">☁ 저장</button>
     <button class="btn ghost" id="saveBtn">⬇ PDF로 저장</button>
     <button class="btn ghost" id="newBtn">다른 파일</button>
     <button class="btn" id="playBtn">▶ 발표 시작</button>
@@ -160,6 +202,31 @@ button{font:inherit;cursor:pointer}
   </div>
   <div id="grid"></div>
 </section>
+
+<!-- 로그인 창 -->
+<div class="dlg hidden" id="loginDlg">
+  <form class="box" id="loginForm">
+    <h3>로그인</h3>
+    <p>WorkFlow와 같은 계정으로 로그인하세요.</p>
+    <input type="email" id="lEmail" placeholder="이메일" autocomplete="username" required>
+    <input type="password" id="lPw" placeholder="비밀번호" autocomplete="current-password" required>
+    <div class="err" id="lErr"></div>
+    <div class="row"><button type="button" id="lCancel">취소</button><button type="submit" class="pri">로그인</button></div>
+  </form>
+</div>
+
+<!-- 삭제 창 -->
+<div class="dlg hidden" id="delDlg">
+  <div class="box">
+    <h3 id="dTitle"></h3>
+    <p id="dText"></p>
+    <div class="row">
+      <button id="dCancel">취소</button>
+      <button id="dKeep">PDF만 삭제 (편집 구성 남김)</button>
+      <button class="dng" id="dAll">전부 삭제</button>
+    </div>
+  </div>
+</div>
 
 <!-- 나누기 창 -->
 <div id="modal" class="hidden">
@@ -272,12 +339,18 @@ async function openFile(file) {
     $('#error').textContent = 'PDF 파일만 올릴 수 있어요.';
     return;
   }
+  $('#progress').textContent = '파일 여는 중…';
+  const buf = await file.arrayBuffer();
+  await openBytes(buf, file.name.replace(/\.pdf$/i, ''), null);
+}
+
+// PDF 바이트로 열기 (파일 업로드·클라우드 공통). deck: 클라우드에서 연 경우 그 수업 정보
+async function openBytes(buf, name, deck) {
+  $('#error').textContent = '';
   try {
-    $('#progress').textContent = '파일 여는 중…';
-    const buf = await file.arrayBuffer();
-    S.bytes = new Uint8Array(buf.slice(0));           // PDF 저장용 원본 사본
+    S.bytes = new Uint8Array(buf.slice(0));           // PDF 저장·클라우드 저장용 원본 사본
     S.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    S.name = file.name.replace(/\.pdf$/i, '');
+    S.name = name;
     // 이 앱에서 저장한 슬라이드 PDF인지 확인 → 그렇다면 다시 자르지 않음
     S.exported = false; S.blocks = null;
     try {
@@ -291,7 +364,10 @@ async function openFile(file) {
       }
     } catch (e) {}
     S.wholePage = S.exported && !S.blocks;   // 블록 정보 없는 저장본(판서 포함 등) → 한 장 통째로
-    S.key = 'print-slides:' + ((S.pdf.fingerprints && S.pdf.fingerprints[0]) || (file.name + file.size));
+    S.fp = (S.pdf.fingerprints && S.pdf.fingerprints[0]) || (name + S.bytes.length);
+    S.key = 'print-slides:' + S.fp;
+    // 클라우드에 같은 PDF로 저장한 수업이 있으면 연결
+    S.deck = deck || CL.decks.find(d => d.fp === S.fp) || null;
     S.pages = [];
     for (let i = 1; i <= S.pdf.numPages; i++) {
       $('#progress').textContent = `페이지 ${S.exported ? '불러오는' : '분석'} 중… ${i} / ${S.pdf.numPages}`;
@@ -302,6 +378,8 @@ async function openFile(file) {
     if (S.wholePage) {
       buildSlides();
       banner = '이 앱에서 판서까지 넣어 저장한 PDF예요. 한 장씩 그대로 씁니다.';
+    } else if (S.deck && S.deck.layout && applyLayout(safeJSON(S.deck.layout))) {
+      if (!deck) banner = `클라우드에 저장된 "${S.deck.title}"의 편집 구성을 불러왔어요.`;
     } else if (loadLayout()) {
       if (S.edited) banner = '지난번에 편집한 슬라이드 구성을 불러왔어요.';
     } else {
@@ -314,10 +392,14 @@ async function openFile(file) {
     $('#docTitle').textContent = S.name;
     showView('editor');
     renderGrid();
+    cloudUI();
+    // 'PDF만 삭제'했던 수업의 원본을 다시 올리면 클라우드에 PDF를 되살림
+    if (S.deck && !S.deck.hasPdf && CL.user) restorePdf();
   } catch (err) {
     console.error(err);
     $('#progress').textContent = '';
     $('#error').textContent = '파일을 읽지 못했어요. (암호가 걸린 PDF이거나 손상된 파일일 수 있어요)';
+    showView('upload');
   }
 }
 
@@ -864,27 +946,268 @@ $('#pos').onclick = e => {
   }
   renderGrid();
 };
-$('#newBtn').onclick = () => { showBanner(''); S.pdf && S.pdf.destroy(); S.pdf = null; S.pages = []; S.slides = []; $('#file').value = ''; showView('upload'); };
+$('#newBtn').onclick = () => { cloudFlush(); S.deck = null; renderLib(); showBanner(''); S.pdf && S.pdf.destroy(); S.pdf = null; S.pages = []; S.slides = []; $('#file').value = ''; showView('upload'); };
 $('#playBtn').onclick = () => startShow(0);
+
+/* =========================================================
+   클라우드 저장 (Firebase: WorkFlow 프로젝트)
+   - 저장 위치: printSlides/{내 uid}/decks/{수업}           ← 이 앱은 여기만 읽고 씀
+   - 원본 PDF:  printSlides/{uid}/decks/{수업}/chunks/{0,1,…} (약 0.9MB씩 나눠 저장)
+   - 편집 구성: 수업 문서의 layout 필드(JSON 문자열)
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyAlTnvXABpLX96jQa7rvTYCf7HScC1pMuY",
+  authDomain: "workplanner-ba44c.firebaseapp.com",
+  projectId: "workplanner-ba44c",
+  storageBucket: "workplanner-ba44c.firebasestorage.app",
+  messagingSenderId: "494845457857",
+  appId: "1:494845457857:web:252fe88d230b383c2eab40"
+};
+const CHUNK = 900 * 1024;            // Firestore 문서 하나 최대 1MB → 조각 크기
+const MAX_PDF = 15 * 1024 * 1024;    // 너무 큰 PDF는 저장하지 않음
+const FREE_QUOTA = 1024 * 1024 * 1024;
+const CL = { ok: false, user: null, decks: [], timer: null, saving: false, dirty: false, last: 0 };
+let fbAuth = null, fbDb = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  fbAuth = firebase.auth(); fbDb = firebase.firestore();
+  CL.ok = true;
+} catch (e) { console.warn('Firebase 연결 안 됨', e); }
+
+function decksRef() { return fbDb.collection('printSlides').doc(CL.user.uid).collection('decks'); }
+function semesterOf(d = new Date()) {
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  if (m <= 2) return `${y - 1}-2학기`;
+  return m <= 7 ? `${y}-1학기` : `${y}-2학기`;
+}
+const fmtMB = b => !b ? '0KB' : b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
+const fmtDate = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+/* ---------- 로그인 ---------- */
+if (CL.ok) fbAuth.onAuthStateChanged(async u => {
+  CL.user = u; CL.decks = [];
+  if (u) await refreshDecks(); else renderLib();
+  cloudUI();
+});
+function openLogin() {
+  if (!CL.ok) return toast('클라우드에 연결할 수 없어요 (인터넷 연결 확인)');
+  $('#lErr').textContent = ''; $('#loginDlg').classList.remove('hidden'); setTimeout(() => $('#lEmail').focus(), 50);
+}
+$('#lCancel').onclick = () => $('#loginDlg').classList.add('hidden');
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault();
+  $('#lErr').textContent = '로그인 중…';
+  try {
+    await fbAuth.signInWithEmailAndPassword($('#lEmail').value.trim(), $('#lPw').value);
+    $('#lPw').value = ''; $('#loginDlg').classList.add('hidden');
+    toast('로그인했어요');
+  } catch (err) {
+    const c = err && err.code || '';
+    $('#lErr').textContent = /wrong-password|invalid-credential|user-not-found|invalid-login/.test(c)
+      ? '이메일 또는 비밀번호가 맞지 않아요.' : /too-many/.test(c) ? '시도가 너무 많아요. 잠시 후 다시 해주세요.' : '로그인하지 못했어요. (' + c + ')';
+  }
+};
+
+/* ---------- 목록 ---------- */
+async function refreshDecks() {
+  if (!CL.user) return;
+  try {
+    const snap = await decksRef().orderBy('updatedAt', 'desc').get();
+    CL.decks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.error(e); toast('클라우드 목록을 불러오지 못했어요'); }
+  renderLib();
+}
+function renderLib() {
+  const el = $('#lib');
+  if (!CL.ok) { el.innerHTML = '<div class="lib-h"><h2>내 수업 슬라이드</h2></div><div class="empty">클라우드에 연결할 수 없어요. 인터넷 연결을 확인해 주세요. 파일 올리기는 그대로 쓸 수 있어요.</div>'; return; }
+  if (!CL.user) {
+    el.innerHTML = '<div class="lib-h"><h2>내 수업 슬라이드</h2><button id="libLogin" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600">로그인</button></div><div class="empty">로그인하면 저장해 둔 수업 슬라이드를 바로 열 수 있어요.</div>';
+    $('#libLogin').onclick = openLogin; return;
+  }
+  const total = CL.decks.reduce((a, d) => a + (d.size || 0), 0);
+  let h = `<div class="lib-h"><h2>내 수업 슬라이드</h2><span class="who">${esc(CL.user.email || '')}</span><button id="libOut">로그아웃</button></div>`;
+  h += `<div class="usage">저장 용량 ${fmtMB(total)} 사용 (무료 1GB는 WorkFlow·가족 캘린더와 함께 씀)<div class="bar2"><i style="width:${Math.min(100, Math.max(0.5, total / FREE_QUOTA * 100))}%"></i></div></div>`;
+  if (!CL.decks.length) h += '<div class="empty">아직 저장한 수업이 없어요. 아래에서 PDF를 올리고 편집 화면의 <b>☁ 저장</b>을 누르세요.</div>';
+  const sems = [...new Set(CL.decks.map(d => d.semester))].sort().reverse();
+  for (const sem of sems) {
+    const list = CL.decks.filter(d => d.semester === sem);
+    h += `<div class="sem"><div class="sem-h"><b>${esc(sem)}</b><button data-sem="${esc(sem)}">이 학기 전부 삭제 (${list.length}개)</button></div>`;
+    for (const d of list) {
+      h += `<div class="deck"><div class="t"><b>${esc(d.title)}${d.hasPdf ? '' : '<span class="tag">편집 구성만 남음</span>'}</b>`
+        + `<span>${d.slides || 0}장 · ${d.hasPdf ? fmtMB(d.size || 0) : '원본 PDF를 올리면 구성이 되살아나요'} · ${fmtDate(d.updatedAt)} 수정</span></div>`
+        + `<button class="open" data-open="${d.id}" ${d.hasPdf ? '' : 'disabled'}>▶ 열기</button>`
+        + `<button class="del" data-del="${d.id}">삭제</button></div>`;
+    }
+    h += '</div>';
+  }
+  el.innerHTML = h;
+  $('#libOut').onclick = async () => { cloudFlush(); await fbAuth.signOut(); toast('로그아웃했어요'); };
+  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openDeck(CL.decks.find(d => d.id === b.dataset.open)));
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => askDelete([CL.decks.find(d => d.id === b.dataset.del)]));
+  el.querySelectorAll('[data-sem]').forEach(b => b.onclick = () => askDelete(CL.decks.filter(d => d.semester === b.dataset.sem), b.dataset.sem));
+}
+
+/* ---------- 열기 ---------- */
+async function openDeck(d) {
+  if (!d) return;
+  $('#progress').textContent = `"${d.title}" 불러오는 중…`;
+  try {
+    const snap = await decksRef().doc(d.id).collection('chunks').get();
+    const parts = snap.docs.sort((a, b) => +a.id - +b.id).map(x => x.data().d.toUint8Array());
+    const bytes = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+    let o = 0; for (const p of parts) { bytes.set(p, o); o += p.length; }
+    if (!bytes.length) throw new Error('empty');
+    await openBytes(bytes.buffer, d.title, d);
+  } catch (e) {
+    console.error(e);
+    $('#progress').textContent = '';
+    $('#error').textContent = '클라우드에서 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+  }
+}
+
+/* ---------- 저장 ---------- */
+async function uploadChunks(ref) {
+  const n = Math.max(1, Math.ceil(S.bytes.length / CHUNK));
+  for (let i = 0; i < n; i++) {
+    setCloud(`PDF 올리는 중… ${i + 1}/${n}`);
+    await ref.collection('chunks').doc(String(i)).set({ d: firebase.firestore.Blob.fromUint8Array(S.bytes.slice(i * CHUNK, (i + 1) * CHUNK)) });
+  }
+  return n;
+}
+async function cloudSaveNew() {
+  if (!CL.user) return openLogin();
+  if (S.wholePage) return toast('판서 포함으로 저장한 PDF는 클라우드에 저장할 수 없어요. 원본이나 편집본 PDF를 올려주세요.');
+  if (S.bytes.length > MAX_PDF) return toast(`PDF가 너무 커서(${fmtMB(S.bytes.length)}) 저장할 수 없어요. 15MB 이하만 가능해요.`);
+  const title = prompt('목록에 보일 이름', S.name);
+  if (title === null) return;
+  const ref = decksRef().doc();
+  try {
+    CL.saving = true;
+    const n = await uploadChunks(ref);
+    const now = Date.now();
+    const doc = { title: title.trim() || S.name, semester: semesterOf(), fp: S.fp, size: S.bytes.length, chunks: n,
+      hasPdf: true, slides: S.slides.length, layout: JSON.stringify(layoutData()), createdAt: now, updatedAt: now };
+    await ref.set(doc);
+    S.deck = { id: ref.id, ...doc }; CL.decks.unshift(S.deck); CL.last = now;
+    $('#docTitle').textContent = S.name = S.deck.title;
+    toast('클라우드에 저장했어요. 이제부터 고치는 내용은 자동으로 저장돼요.');
+  } catch (e) {
+    console.error(e); toast('클라우드 저장에 실패했어요');
+    try { await deleteChunks(ref); } catch (_) {}
+  } finally { CL.saving = false; cloudUI(); renderLib(); }
+}
+// 편집할 때마다 바로 쓰지 않고, 손을 멈춘 뒤 2.5초 후 한 번만 저장
+function cloudSchedule() {
+  if (!S.deck || !CL.user) return;
+  CL.dirty = true; setCloud('저장 대기…');
+  clearTimeout(CL.timer); CL.timer = setTimeout(cloudFlush, 2500);
+}
+async function cloudFlush() {
+  clearTimeout(CL.timer);
+  if (!CL.dirty || !S.deck || !CL.user) return;
+  CL.dirty = false;
+  const deck = S.deck, upd = { layout: JSON.stringify(layoutData()), slides: S.slides.length, updatedAt: Date.now() };
+  try {
+    setCloud('저장 중…');
+    await decksRef().doc(deck.id).update(upd);
+    Object.assign(deck, upd); CL.last = upd.updatedAt;
+  } catch (e) { console.error(e); CL.dirty = true; setCloud('저장 실패 — 다시 시도 중'); CL.timer = setTimeout(cloudFlush, 8000); return; }
+  if (S.deck === deck) cloudUI();
+}
+async function restorePdf() {
+  const d = S.deck;
+  try {
+    const ref = decksRef().doc(d.id);
+    const n = await uploadChunks(ref);
+    const upd = { hasPdf: true, chunks: n, size: S.bytes.length, updatedAt: Date.now() };
+    await ref.update(upd); Object.assign(d, upd);
+    toast('클라우드에 원본 PDF를 다시 저장했어요');
+  } catch (e) { console.error(e); toast('원본 PDF를 클라우드에 다시 올리지 못했어요'); }
+  cloudUI(); renderLib();
+}
+addEventListener('beforeunload', () => { if (CL.dirty) cloudFlush(); });
+
+function setCloud(t, ok) { const el = $('#cloudState'); el.textContent = t; el.classList.toggle('ok', !!ok); }
+function cloudUI() {
+  const b = $('#cloudBtn');
+  if (!b) return;
+  b.classList.toggle('hidden', !!S.deck);
+  if (!CL.ok) { setCloud(''); b.classList.add('hidden'); return; }
+  if (!CL.user) { setCloud(''); b.textContent = '☁ 로그인하고 저장'; return; }
+  b.textContent = '☁ 저장';
+  if (S.deck) setCloud(`☁ 저장됨 ${fmtDate(CL.last || S.deck.updatedAt).split(' ')[1]}`, true);
+  else setCloud('');
+}
+$('#cloudBtn').onclick = () => CL.user ? cloudSaveNew() : openLogin();
+
+/* ---------- 삭제 ---------- */
+async function deleteChunks(ref) {
+  const snap = await ref.collection('chunks').get();   // 하위 조각은 상위 문서와 함께 지워지지 않으므로 하나씩 삭제
+  for (const c of snap.docs) await c.ref.delete();
+}
+async function deleteDeck(d, keepLayout) {
+  const ref = decksRef().doc(d.id);
+  await deleteChunks(ref);
+  if (keepLayout) {
+    const upd = { hasPdf: false, chunks: 0, size: 0 };
+    await ref.update(upd); Object.assign(d, upd);
+  } else {
+    await ref.delete();
+    CL.decks = CL.decks.filter(x => x !== d);
+    if (S.deck === d) { S.deck = null; cloudUI(); }
+  }
+}
+let DEL = null;
+function askDelete(list, sem) {
+  list = list.filter(Boolean); if (!list.length) return;
+  DEL = list;
+  $('#dTitle').textContent = sem ? `${sem} 수업 슬라이드 ${list.length}개 삭제` : `"${list[0].title}" 삭제`;
+  $('#dText').innerHTML = '클라우드에서 지웁니다. 내 컴퓨터의 PDF 파일과 WorkFlow·가족 캘린더 데이터는 그대로예요.<br>'
+    + '<b>PDF만 삭제</b>를 고르면 편집 구성(나누기·합치기·배치, 수 KB)은 남아서, 다음에 같은 원본을 올리면 그대로 되살아나요.';
+  $('#dKeep').classList.toggle('hidden', list.every(d => !d.hasPdf));
+  $('#delDlg').classList.remove('hidden');
+}
+$('#dCancel').onclick = () => $('#delDlg').classList.add('hidden');
+async function runDelete(keep) {
+  $('#delDlg').classList.add('hidden');
+  const list = DEL || []; DEL = null;
+  let n = 0;
+  for (const d of list) {
+    try { toast(`삭제 중… ${++n}/${list.length}`); await deleteDeck(d, keep); }
+    catch (e) { console.error(e); toast(`"${d.title}" 삭제에 실패했어요`); }
+  }
+  renderLib(); toast(keep ? 'PDF를 삭제했어요 (편집 구성은 남김)' : '삭제했어요');
+}
+$('#dKeep').onclick = () => runDelete(true);
+$('#dAll').onclick = () => runDelete(false);
+
+renderLib();
 
 /* =========================================================
    편집 내용 기억하기 (같은 PDF를 다시 올리면 자동 복원)
    ========================================================= */
+function layoutData() {
+  return {
+    v: 2, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
+    slides: S.slides.map(sl => ({
+      ps: sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1]),
+      f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null,
+    })), t: Date.now(),
+  };
+}
+function safeJSON(t) { try { return JSON.parse(t); } catch (e) { return null; } }
 function saveLayout() {
   if (S.wholePage || !S.key) return;
-  try {
-    localStorage.setItem(S.key, JSON.stringify({
-      v: 2, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
-      slides: S.slides.map(sl => ({
-        ps: sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1]),
-        f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null,
-      })), t: Date.now(),
-    }));
-  } catch (e) {}
+  try { localStorage.setItem(S.key, JSON.stringify(layoutData())); } catch (e) {}
+  cloudSchedule();
 }
 function loadLayout() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(S.key) || 'null'); } catch (e) {}
+  return applyLayout(d);
+}
+function applyLayout(d) {
   if (!d || (d.v !== 1 && d.v !== 2) || d.n !== S.pages.length) return false;
   const list = d.slides.map(x => Array.isArray(x) ? { ps: x, f: null } : x);   // v1 호환
   const ok = list.every(x => x.ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
@@ -1153,7 +1476,7 @@ setColor('#e0262b'); setPen(false);
 /* ---------- 키보드 · 프레젠터 ---------- */
 document.addEventListener('keydown', e => {
   if (show.classList.contains('hidden')) {
-    if (e.key === 'Escape') { closeCut(); closeArrange(); }
+    if (e.key === 'Escape') { closeCut(); closeArrange(); $('#loginDlg').classList.add('hidden'); $('#delDlg').classList.add('hidden'); }
     if (e.key === 'F5' && S.slides.length) { e.preventDefault(); startShow(e.shiftKey ? S.cur : 0); }
     return;
   }
