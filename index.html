@@ -221,6 +221,16 @@ button{font:inherit;cursor:pointer}
     <h3 id="sTitle">학기 옮기기</h3>
     <p>목록에서 어느 학기에 묶일지 바꿉니다. 학기 단위로 삭제할 때 이 학기를 기준으로 지워져요.</p>
     <select id="sSel" style="width:100%;font:inherit;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px"></select>
+    <div id="sDirect" class="hidden">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="sYear" min="2000" max="2100" placeholder="2027" style="flex:1.4;margin:0">
+        <span style="color:var(--muted);white-space:nowrap">학년도</span>
+        <input type="number" id="sTerm" min="1" max="2" placeholder="1" style="flex:.7;margin:0">
+        <span style="color:var(--muted);white-space:nowrap">학기</span>
+      </div>
+      <div id="sPrev" style="margin:10px 0 2px;font-size:14px;color:var(--accent);font-weight:600;min-height:1.3em"></div>
+    </div>
+    <div class="err" id="sErr"></div>
     <div class="row"><button id="sCancel">취소</button><button class="pri" id="sOk">옮기기</button></div>
   </div>
 </div>
@@ -990,6 +1000,8 @@ function semesterOf(d = new Date()) {
   if (m <= 2) return `${y - 1}-2학기`;
   return m <= 7 ? `${y}-1학기` : `${y}-2학기`;
 }
+// 저장 값 "2027-1학기" → 화면 표시 "2027학년도 1학기"
+const fmtSem = v => { const m = /^(\d{4})-(\d)/.exec(v || ''); return m ? `${m[1]}학년도 ${m[2]}학기` : (v || ''); };
 const fmtMB = b => !b ? '0KB' : b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB';
 const fmtDate = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
@@ -1042,7 +1054,7 @@ function renderLib() {
   const sems = [...new Set(CL.decks.map(d => d.semester))].sort().reverse();
   for (const sem of sems) {
     const list = CL.decks.filter(d => d.semester === sem);
-    h += `<div class="sem"><div class="sem-h"><b>${esc(sem)}</b><button data-sem="${esc(sem)}">이 학기 전부 삭제 (${list.length}개)</button></div>`;
+    h += `<div class="sem"><div class="sem-h"><b>${esc(fmtSem(sem))}</b><button data-sem="${esc(sem)}">이 학기 전부 삭제 (${list.length}개)</button></div>`;
     for (const d of list) {
       h += `<div class="deck"><div class="t"><b>${esc(d.title)}${d.hasPdf ? '' : '<span class="tag">편집 구성만 남음</span>'}</b>`
         + `<span>${d.slides || 0}장 · ${d.hasPdf ? fmtMB(d.size || 0) : '원본 PDF를 올리면 구성이 되살아나요'} · ${fmtDate(d.updatedAt)} 수정</span></div>`
@@ -1158,25 +1170,45 @@ let MOVE = null;
 function askMove(d) {
   if (!d) return;
   MOVE = d;
-  const y = new Date().getFullYear(), opts = new Set(CL.decks.map(x => x.semester));
-  for (let yy = y - 1; yy <= y + 1; yy++) { opts.add(`${yy}-1학기`); opts.add(`${yy}-2학기`); }
-  opts.add(semesterOf());
+  // 드롭다운: 지금까지 쓴 학기만 + 직접 입력
   const now = semesterOf();
-  $('#sSel').innerHTML = [...opts].sort().reverse()
-    .map(o => `<option value="${esc(o)}" ${o === d.semester ? 'selected' : ''}>${esc(o)}${o === now ? ' (이번 학기)' : ''}${o === d.semester ? ' — 지금' : ''}</option>`).join('');
+  const opts = [...new Set([...CL.decks.map(x => x.semester), now])].sort().reverse();
+  $('#sSel').innerHTML = opts.map(o => `<option value="${esc(o)}" ${o === d.semester ? 'selected' : ''}>${esc(fmtSem(o))}${o === now ? ' (이번 학기)' : ''}${o === d.semester ? ' — 지금' : ''}</option>`).join('')
+    + '<option value="__direct">✎ 직접 입력…</option>';
+  const m = /^(\d{4})-(\d)/.exec(now);
+  $('#sYear').value = m[1]; $('#sTerm').value = m[2];
+  $('#sErr').textContent = '';
   $('#sTitle').textContent = `"${d.title}" 학기 옮기기`;
+  syncMove();
   $('#semDlg').classList.remove('hidden');
 }
+function directSem() {
+  const y = +$('#sYear').value, t = +$('#sTerm').value;
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) return { err: '학년도를 4자리 숫자로 입력해 주세요. (예: 2027)' };
+  if (t !== 1 && t !== 2) return { err: '학기는 1 또는 2로 입력해 주세요.' };
+  return { v: `${y}-${t}학기` };
+}
+function syncMove() {
+  const direct = $('#sSel').value === '__direct';
+  $('#sDirect').classList.toggle('hidden', !direct);
+  if (direct) { const r = directSem(); $('#sPrev').textContent = r.v ? '→ ' + fmtSem(r.v) : ''; }
+  $('#sErr').textContent = '';
+}
+$('#sSel').onchange = () => { syncMove(); if ($('#sSel').value === '__direct') $('#sYear').focus(); };
+$('#sYear').oninput = $('#sTerm').oninput = syncMove;
 $('#sCancel').onclick = () => $('#semDlg').classList.add('hidden');
 $('#sOk').onclick = async () => {
-  const d = MOVE, sem = $('#sSel').value;
+  const d = MOVE;
+  let sem = $('#sSel').value;
+  if (sem === '__direct') { const r = directSem(); if (r.err) { $('#sErr').textContent = r.err; return; } sem = r.v; }
   $('#semDlg').classList.add('hidden');
   if (!d || sem === d.semester) return;
   try {
     await decksRef().doc(d.id).update({ semester: sem });
-    d.semester = sem; renderLib(); toast(`${sem}(으)로 옮겼어요`);
+    d.semester = sem; renderLib(); toast(`${fmtSem(sem)}(으)로 옮겼어요`);
   } catch (e) { console.error(e); toast('학기를 옮기지 못했어요'); }
 };
+$('#sTerm').onkeydown = $('#sYear').onkeydown = e => { if (e.key === 'Enter') $('#sOk').click(); };
 
 /* ---------- 삭제 ---------- */
 async function deleteChunks(ref) {
@@ -1199,7 +1231,7 @@ let DEL = null;
 function askDelete(list, sem) {
   list = list.filter(Boolean); if (!list.length) return;
   DEL = list;
-  $('#dTitle').textContent = sem ? `${sem} 수업 슬라이드 ${list.length}개 삭제` : `"${list[0].title}" 삭제`;
+  $('#dTitle').textContent = sem ? `${fmtSem(sem)} 수업 슬라이드 ${list.length}개 삭제` : `"${list[0].title}" 삭제`;
   $('#dText').innerHTML = '클라우드에서 지웁니다. 내 컴퓨터의 PDF 파일과 WorkFlow·가족 캘린더 데이터는 그대로예요.<br>'
     + '<b>PDF만 삭제</b>를 고르면 편집 구성(나누기·합치기·배치, 수 KB)은 남아서, 다음에 같은 원본을 올리면 그대로 되살아나요.';
   $('#dKeep').classList.toggle('hidden', list.every(d => !d.hasPdf));
