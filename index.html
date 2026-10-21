@@ -87,6 +87,10 @@ button{font:inherit;cursor:pointer}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;padding:8px 20px 60px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .card.sel{outline:3px solid var(--accent);outline-offset:-1px}
+.card[draggable=true]{cursor:grab}
+.card.dragging{opacity:.4}
+.card.drop-before{box-shadow:-6px 0 0 -1px var(--warn)}
+.card.drop-after{box-shadow:6px 0 0 -1px var(--warn)}
 .card .thumb{position:relative;background:#f7f8fa;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;padding:8px;cursor:zoom-in}
 .card .thumb canvas{max-width:100%;max-height:100%;box-shadow:0 0 0 1px #e3e6eb;border-radius:4px}
 .card .thumb{cursor:pointer}
@@ -189,6 +193,10 @@ button{font:inherit;cursor:pointer}
       <span class="seg" id="pos"><button data-v="right" class="on">오른쪽</button><button data-v="bottom">아래</button><button data-v="none">없음</button></span>
       <span class="seg" id="reserve"><button data-v="0.3">30%</button><button data-v="0.4" class="on">40%</button><button data-v="0.5">50%</button></span>
     </label>
+    <button class="btn ghost" id="addBtn" title="다른 PDF를 맨 뒤에 이어 붙입니다">＋ PDF 추가</button>
+    <button class="btn ghost" id="swapBtn" title="수정한 프린트 PDF로 바꿉니다">⇄ 교체</button>
+    <input type="file" id="addFile" accept="application/pdf,.pdf" hidden>
+    <input type="file" id="swapFile" accept="application/pdf,.pdf" hidden>
     <span class="cloud" id="cloudState"></span>
     <button class="btn ghost" id="cloudBtn">☁ 저장</button>
     <button class="btn ghost" id="saveBtn">⬇ PDF로 저장</button>
@@ -197,7 +205,7 @@ button{font:inherit;cursor:pointer}
   </div>
   <div class="banner hidden" id="banner"></div>
   <div class="help" id="help">
-    썸네일을 클릭하면 그 슬라이드부터 발표합니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꿀 수 있습니다.
+    썸네일을 클릭하면 그 슬라이드부터 발표하고, <b>카드를 끌어서</b> 순서를 바꿀 수 있습니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꿀 수 있습니다.
     발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
   </div>
   <div id="grid"></div>
@@ -234,6 +242,9 @@ button{font:inherit;cursor:pointer}
     <div class="row"><button id="sCancel">취소</button><button class="pri" id="sOk">옮기기</button></div>
   </div>
 </div>
+
+<!-- 작업 중 -->
+<div class="dlg hidden" id="busyDlg"><div class="box" style="text-align:center"><h3 id="busyT" style="margin:6px 0"></h3><p style="margin:0">잠시만 기다려 주세요.</p></div></div>
 
 <!-- 삭제 창 -->
 <div class="dlg hidden" id="delDlg">
@@ -365,34 +376,47 @@ async function openFile(file) {
 }
 
 // PDF 바이트로 열기 (파일 업로드·클라우드 공통). deck: 클라우드에서 연 경우 그 수업 정보
+// 이 앱에서 저장한 PDF인지, 블록 정보가 있는지 확인
+async function readMeta(pdf) {
+  const m = { exported: false, blocks: null };
+  try {
+    const info = (await pdf.getMetadata()).info || {};
+    m.exported = /print-slides/.test(info.Keywords || info.Subject || '');
+    // 저장할 때 넣어 둔 블록 위치 → 다시 나누기·합치기·배치 가능 (r:null 인 페이지는 일반 프린트처럼 자동 분할)
+    const raw = info.Custom && info.Custom.PrintSlides;
+    if (m.exported && raw) {
+      const j = JSON.parse(raw);
+      if (j.v === 1 && j.pages.length === pdf.numPages) m.blocks = j.pages;
+    }
+  } catch (e) {}
+  m.wholePage = m.exported && !m.blocks;   // 블록 정보 없는 저장본(판서 포함 등) → 한 장 통째로
+  return m;
+}
+// PDF 바이트를 읽어 페이지 분석까지 (열기·내용 추가·교체 공통)
+async function loadPdf(buf, say) {
+  const bytes = new Uint8Array(buf.slice(0));
+  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+  const m = await readMeta(pdf);
+  if (S.pdf && S.pdf !== pdf) { try { S.pdf.destroy(); } catch (e) {} }
+  S.bytes = bytes; S.pdf = pdf;
+  S.exported = m.exported; S.blocks = m.blocks; S.wholePage = m.wholePage;
+  S.fp = (pdf.fingerprints && pdf.fingerprints[0]) || ('pdf' + bytes.length);
+  S.key = 'print-slides:' + S.fp;
+  S.pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    say && say(`페이지 ${S.exported ? '불러오는' : '분석'} 중… ${i} / ${pdf.numPages}`);
+    S.pages.push(await analyzePage(i));
+  }
+  cache.clear();
+}
+
 async function openBytes(buf, name, deck) {
   $('#error').textContent = '';
   try {
-    S.bytes = new Uint8Array(buf.slice(0));           // PDF 저장·클라우드 저장용 원본 사본
-    S.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    await loadPdf(buf, t => $('#progress').textContent = t);
     S.name = name;
-    // 이 앱에서 저장한 슬라이드 PDF인지 확인 → 그렇다면 다시 자르지 않음
-    S.exported = false; S.blocks = null;
-    try {
-      const info = (await S.pdf.getMetadata()).info || {};
-      S.exported = /print-slides/.test(info.Keywords || info.Subject || '');
-      // 저장할 때 넣어 둔 블록 위치 → 다시 나누기·합치기·배치 가능
-      const raw = info.Custom && info.Custom.PrintSlides;
-      if (S.exported && raw) {
-        const j = JSON.parse(raw);
-        if (j.v === 1 && j.pages.length === S.pdf.numPages) S.blocks = j.pages;
-      }
-    } catch (e) {}
-    S.wholePage = S.exported && !S.blocks;   // 블록 정보 없는 저장본(판서 포함 등) → 한 장 통째로
-    S.fp = (S.pdf.fingerprints && S.pdf.fingerprints[0]) || (name + S.bytes.length);
-    S.key = 'print-slides:' + S.fp;
     // 클라우드에 같은 PDF로 저장한 수업이 있으면 연결
     S.deck = deck || CL.decks.find(d => d.fp === S.fp) || null;
-    S.pages = [];
-    for (let i = 1; i <= S.pdf.numPages; i++) {
-      $('#progress').textContent = `페이지 ${S.exported ? '불러오는' : '분석'} 중… ${i} / ${S.pdf.numPages}`;
-      S.pages.push(await analyzePage(i));
-    }
     S.ink = {}; S.edited = false;
     let banner = '';
     if (S.wholePage) {
@@ -455,8 +479,8 @@ async function analyzePage(no) {
   }
 
   // --- 저장본: 기록된 블록 사각형을 그대로 '단'으로 사용
-  if (S.blocks) {
-    const columns = (S.blocks[no - 1].r || []).map(([bx, by, bw, bh]) => {
+  if (S.blocks && S.blocks[no - 1] && S.blocks[no - 1].r) {
+    const columns = S.blocks[no - 1].r.map(([bx, by, bw, bh]) => {
       const x0 = Math.max(0, Math.round(bx * W)), x1 = Math.min(W, Math.round((bx + bw) * W));
       const y0 = Math.max(0, Math.round(by * W)), y1 = Math.min(H, Math.round((by + bh) * W));
       const lines = []; let s = -1;
@@ -549,22 +573,22 @@ function firstText(col, y0, y1) {
 /* =========================================================
    3) 슬라이드 구성
    ========================================================= */
-function buildSlides() {
+// from 이후 페이지들로 슬라이드를 만듦. from=0이면 전체를 새로 만들고, 아니면 만든 슬라이드만 돌려줌(내용 추가용)
+function buildSlides(from = 0) {
   if (S.wholePage) {
     S.slides = S.pages.map((pg, i) => ({ id: uid++, pieces: [{ p: i, c: 0, y0: 0, y1: pg.H }] }));
-    return;
-  }
-  if (S.exported) {   // 저장할 때의 슬라이드 구성 복원
-    S.slides = S.pages.map((pg, i) => {
-      const sl = { id: uid++, pieces: pg.columns.map((col, c) => ({ p: i, c, y0: col.y0, y1: col.y1 })) };
-      const f = S.blocks[i].f;
-      if (f && f.length === sl.pieces.length) sl.free = f.map(([x, y, w]) => ({ x, y, w }));
-      return sl;
-    });
-    return;
+    return S.slides;
   }
   const slides = [];
   S.pages.forEach((pg, pi) => {
+    if (pi < from) return;
+    const blk = S.blocks && S.blocks[pi];
+    if (blk && blk.r) {   // 이 앱에서 저장한 페이지: 저장할 때의 슬라이드 구성 복원
+      const sl = { id: uid++, pieces: pg.columns.map((col, c) => ({ p: pi, c, y0: col.y0, y1: col.y1 })) };
+      if (blk.f && blk.f.length === sl.pieces.length) sl.free = blk.f.map(([x, y, w]) => ({ x, y, w }));
+      slides.push(sl);
+      return;
+    }
     const H = pg.H;
     pg.columns.forEach((col, ci) => {
       // 문단 묶기
@@ -634,7 +658,8 @@ function buildSlides() {
       }
     });
   });
-  S.slides = slides;
+  if (from === 0) S.slides = slides;
+  return slides;
 }
 
 /* 슬라이드 크기(분석 좌표) */
@@ -724,8 +749,36 @@ function renderGrid() {
     if (idx > 0) meta.append(btn('↑ 합치기', () => mergeUp(idx)));
     meta.append(btn('삭제', () => removeSlide(idx), 'del'));
     card.append(th, meta);
+    hookCardDrag(card, idx);
     grid.append(card);
   });
+}
+/* 카드 끌어서 슬라이드 순서 바꾸기 */
+let DRAG = -1;
+function hookCardDrag(card, idx) {
+  card.draggable = true;
+  card.addEventListener('dragstart', e => { DRAG = idx; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {} });
+  card.addEventListener('dragend', () => { DRAG = -1; document.querySelectorAll('.card').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after')); });
+  card.addEventListener('dragover', e => {
+    if (DRAG < 0 || DRAG === idx) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = card.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+    card.classList.toggle('drop-after', after); card.classList.toggle('drop-before', !after);
+  });
+  card.addEventListener('dragleave', () => card.classList.remove('drop-before', 'drop-after'));
+  card.addEventListener('drop', e => {
+    if (DRAG < 0 || DRAG === idx) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = card.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+    moveSlide(DRAG, after ? idx + 1 : idx);
+  });
+}
+function moveSlide(from, to) {
+  if (to > from) to--;
+  if (from === to) return;
+  const [sl] = S.slides.splice(from, 1);
+  S.slides.splice(to, 0, sl);
+  S.cur = to; S.edited = true; renderGrid(); toast(`${from + 1}번 슬라이드를 ${to + 1}번 자리로 옮겼어요`);
 }
 function btn(t, f, cls) { const b = document.createElement('button'); b.textContent = t; if (cls) b.className = cls; b.onclick = e => { e.stopPropagation(); f(); }; return b; }
 
@@ -1256,6 +1309,92 @@ $('#dAll').onclick = () => runDelete(false);
 renderLib();
 
 /* =========================================================
+   내용 추가(다른 PDF를 뒤에 이어 붙이기) · PDF 교체(수정본으로 바꾸기)
+   ========================================================= */
+function busy(t) { $('#busyT').textContent = t || ''; $('#busyDlg').classList.toggle('hidden', !t); }
+async function peekMeta(bytes) {
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+  const m = await readMeta(pdf); m.n = pdf.numPages;
+  pdf.destroy(); return m;
+}
+// 클라우드에 연결된 수업이면 새 PDF로 조각을 다시 올림
+async function syncCloudPdf() {
+  if (!S.deck || !CL.user) return;
+  if (S.bytes.length > MAX_PDF) { toast(`PDF가 ${fmtMB(S.bytes.length)}로 커져서 클라우드에는 저장하지 못했어요 (15MB 이하만 가능)`); return; }
+  const ref = decksRef().doc(S.deck.id);
+  const n = await uploadChunks(ref);
+  const snap = await ref.collection('chunks').get();   // 예전 PDF가 더 컸다면 남는 조각 삭제
+  for (const c of snap.docs) if (+c.id >= n) await c.ref.delete();
+  const upd = { fp: S.fp, size: S.bytes.length, chunks: n, hasPdf: true,
+    layout: JSON.stringify(layoutData()), slides: S.slides.length, updatedAt: Date.now() };
+  await ref.update(upd); Object.assign(S.deck, upd); CL.last = upd.updatedAt;
+}
+async function afterDocChange(msg) {
+  S.ink = {};
+  try { busy('클라우드에 저장하는 중…'); await syncCloudPdf(); }
+  catch (e) { console.error(e); toast('클라우드에 새 PDF를 올리지 못했어요'); }
+  busy('');
+  applyModeUI(); renderGrid(); cloudUI(); renderLib();
+  toast(msg);
+}
+
+async function appendPdf(file) {
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('PDF 파일만 추가할 수 있어요');
+  if (!window.PDFLib) return toast('PDF 도구를 불러오지 못했어요 (인터넷 연결 확인)');
+  try {
+    busy('PDF 합치는 중…');
+    const add = new Uint8Array(await file.arrayBuffer());
+    const am = await peekMeta(add);
+    if (am.wholePage) { busy(''); return toast('판서 포함으로 저장한 PDF는 추가할 수 없어요. 원본이나 편집본 PDF를 골라주세요.'); }
+    const { PDFDocument, PDFName, PDFHexString } = PDFLib;
+    const base = await PDFDocument.load(S.bytes, { ignoreEncryption: true });
+    const extra = await PDFDocument.load(add, { ignoreEncryption: true });
+    const oldN = base.getPageCount();
+    (await base.copyPages(extra, extra.getPageIndices())).forEach(pg => base.addPage(pg));
+    // 페이지별 블록 정보: 이 앱에서 저장한 페이지는 블록 그대로, 일반 프린트 페이지는 r:null(자동 분할)
+    const blocks = Array.from({ length: oldN }, (_, i) => (S.blocks && S.blocks[i]) || { r: null })
+      .concat(Array.from({ length: am.n }, (_, i) => (am.blocks && am.blocks[i]) || { r: null }));
+    if (blocks.some(b => b.r)) {
+      base.setKeywords(['print-slides']); base.setSubject('print-slides');
+      base.getInfoDict().set(PDFName.of('PrintSlides'), PDFHexString.fromText(JSON.stringify({ v: 1, pages: blocks })));
+    }
+    const merged = await base.save();
+    const saved = layoutData();
+    await loadPdf(merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength), t => busy('새 페이지 ' + t));
+    if (!applyLayout(saved, oldN)) buildSlides();      // 기존 편집 구성 유지
+    const added = buildSlides(oldN);                    // 새로 붙인 페이지만 자동 분할
+    S.slides.push(...added);
+    S.edited = true; S.cur = S.slides.length - added.length;
+    await afterDocChange(`"${file.name.replace(/\.pdf$/i, '')}"에서 슬라이드 ${added.length}장을 맨 뒤에 추가했어요. 카드를 끌어서 위치를 바꿀 수 있어요.`);
+    const card = $('#grid').children[S.cur]; card && card.scrollIntoView({ block: 'center' });
+  } catch (e) { console.error(e); busy(''); toast('PDF를 추가하지 못했어요'); }
+}
+
+async function replacePdf(file) {
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('PDF 파일만 올릴 수 있어요');
+  try {
+    busy('새 PDF 확인 중…');
+    const nb = new Uint8Array(await file.arrayBuffer());
+    const nm = await peekMeta(nb);
+    if (nm.wholePage) { busy(''); return toast('판서 포함으로 저장한 PDF로는 교체할 수 없어요. 원본이나 편집본 PDF를 골라주세요.'); }
+    const oldN = S.pages.length, saved = layoutData();
+    busy('');
+    const keep = nm.n === oldN && saved.edited &&
+      confirm(`쪽수가 ${oldN}쪽으로 같아요.\n기존 편집 구성(나누기·합치기·배치)을 그대로 쓸까요?\n\n[확인] 그대로 쓰기 (오타 수정 정도일 때)\n[취소] 새로 자동 분할 (내용이 많이 바뀌었을 때)`);
+    await loadPdf(nb.buffer, t => busy('새 PDF ' + t));
+    let msg;
+    if (keep && applyLayout(saved)) msg = 'PDF를 교체했어요. 기존 편집 구성을 그대로 적용했어요.';
+    else { buildSlides(); S.edited = false; msg = keep ? 'PDF를 교체했어요. 내용 배치가 달라서 기존 구성을 쓸 수 없어 새로 나눴어요.' : 'PDF를 교체하고 새로 자동 분할했어요.'; }
+    S.cur = 0;
+    await afterDocChange(msg);
+  } catch (e) { console.error(e); busy(''); toast('PDF를 교체하지 못했어요'); }
+}
+$('#addBtn').onclick = () => { $('#addFile').value = ''; $('#addFile').click(); };
+$('#swapBtn').onclick = () => { $('#swapFile').value = ''; $('#swapFile').click(); };
+$('#addFile').onchange = e => e.target.files[0] && appendPdf(e.target.files[0]);
+$('#swapFile').onchange = e => e.target.files[0] && replacePdf(e.target.files[0]);
+
+/* =========================================================
    편집 내용 기억하기 (같은 PDF를 다시 올리면 자동 복원)
    ========================================================= */
 function layoutData() {
@@ -1278,8 +1417,8 @@ function loadLayout() {
   try { d = JSON.parse(localStorage.getItem(S.key) || 'null'); } catch (e) {}
   return applyLayout(d);
 }
-function applyLayout(d) {
-  if (!d || (d.v !== 1 && d.v !== 2) || d.n !== S.pages.length) return false;
+function applyLayout(d, n = S.pages.length) {
+  if (!d || (d.v !== 1 && d.v !== 2) || d.n !== n) return false;
   const list = d.slides.map(x => Array.isArray(x) ? { ps: x, f: null } : x);   // v1 호환
   const ok = list.every(x => x.ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
   if (!ok) return false;
@@ -1299,6 +1438,8 @@ function applyModeUI() {
   const labs = document.querySelectorAll('.bar label');
   labs[0].classList.toggle('hidden', S.exported);     // 슬라이드 분량(자동 분할)은 원본에서만
   labs[1].classList.toggle('hidden', S.wholePage);
+  $('#addBtn').classList.toggle('hidden', S.wholePage);
+  $('#swapBtn').classList.toggle('hidden', S.wholePage);
 }
 function showBanner(text, withReset) {
   const b = $('#banner');
