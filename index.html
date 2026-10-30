@@ -132,6 +132,12 @@ button{font:inherit;cursor:pointer}
 .blk canvas{display:block;width:100%;height:100%;pointer-events:none}
 .blk .no{position:absolute;left:-2px;top:-22px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:5px;padding:2px 6px;pointer-events:none}
 .blk .rs{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:nwse-resize}
+.blk .cr{position:absolute;background:#fff;border:2px solid var(--warn);border-radius:4px;z-index:2}
+.blk .cr.l,.blk .cr.r{top:50%;width:8px;height:34px;margin-top:-17px;cursor:ew-resize}
+.blk .cr.t,.blk .cr.b{left:50%;width:34px;height:8px;margin-left:-17px;cursor:ns-resize}
+.blk .cr.l{left:-5px}.blk .cr.r{right:-5px}.blk .cr.t{top:-5px}.blk .cr.b{bottom:-5px}
+.blk .cr:hover,.blk.crop .cr{background:var(--warn)}
+.blk.crop{outline:2px solid var(--warn)}
 .gd{position:absolute;background:#e0262b;pointer-events:none;display:none;z-index:5}
 .gd.v{top:0;bottom:0;width:1px}
 .gd.h{left:0;right:0;height:1px}
@@ -205,7 +211,7 @@ button{font:inherit;cursor:pointer}
   </div>
   <div class="banner hidden" id="banner"></div>
   <div class="help" id="help">
-    썸네일을 클릭하면 그 슬라이드부터 발표하고, <b>카드를 끌어서</b> 순서를 바꿀 수 있습니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꿀 수 있습니다.
+    썸네일을 클릭하면 그 슬라이드부터 발표하고, <b>카드를 끌어서</b> 순서를 바꿀 수 있습니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꾸고, 테두리의 빨간 막대로 문항마다 가장자리를 잘라낼 수 있습니다.
     발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
   </div>
   <div id="grid"></div>
@@ -270,13 +276,14 @@ button{font:inherit;cursor:pointer}
 <!-- 배치 창 -->
 <div id="arrange" class="hidden" style="position:fixed;inset:0;z-index:30;background:rgba(20,25,35,.55);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:28px 16px">
   <div class="mbox">
-    <div class="mhead"><b id="aTitle"></b><span>블록을 끌어서 옮기고, 오른쪽 아래 동그라미를 끌어 크기를 바꾸세요. 화면 비율(16:9) 그대로입니다.</span></div>
+    <div class="mhead"><b id="aTitle"></b><span>블록을 끌어서 옮기고, 오른쪽 아래 동그라미로 크기를 바꾸세요. 테두리 가운데 빨간 막대를 안쪽으로 끌면 그만큼 잘라냅니다(다단 세로줄 등).</span></div>
     <div class="atools">
       <span class="lab">빠른 배치</span>
       <button id="aSide">◫ 좌우로 나란히</button>
       <button id="aStack">☰ 위아래로</button>
       <button id="aSame">크기 맞추기</button>
       <button id="aAuto">자동 배치로 되돌리기</button>
+      <button id="aUncrop">자른 곳 되돌리기</button>
       <span class="sp"></span>
       <button id="aCancel">취소</button>
       <button class="btn" id="aDone">완료</button>
@@ -662,12 +669,17 @@ function buildSlides(from = 0) {
   return slides;
 }
 
+/* 조각의 가로 범위(분석 좌표): 직접 자른 값이 있으면 그 값, 없으면 단의 범위 */
+function xr(pc) {
+  const col = S.pages[pc.p].columns[pc.c];
+  return [pc.x0 != null ? pc.x0 : col.x0, pc.x1 != null ? pc.x1 : col.x1];
+}
 /* 슬라이드 크기(분석 좌표) */
 function geom(sl) {
   let w = 0, h = 0;
   sl.pieces.forEach((pc, i) => {
-    const pg = S.pages[pc.p], col = pg.columns[pc.c];
-    w = Math.max(w, col.x1 - col.x0);
+    const pg = S.pages[pc.p], [x0, x1] = xr(pc);
+    w = Math.max(w, x1 - x0);
     h += pc.y1 - pc.y0 + (i ? pg.H * CFG.SPACER : 0);
   });
   return { w, h };
@@ -682,19 +694,19 @@ function place(sl, W, H) {
   if (sl.free && !S.wholePage) {
     const F = Math.min(W, H / FRAME), ox = (W - F) / 2, oy = (H - F * FRAME) / 2;
     sl.pieces.forEach((pc, i) => {
-      const pg = S.pages[pc.p], col = pg.columns[pc.c], f = sl.free[i];
-      const w = col.x1 - col.x0, h = pc.y1 - pc.y0, DW = f.w * F;
-      items.push({ pc, pg, col, w, h, X: ox + f.x * F, Y: oy + f.y * F, DW, DH: DW * h / w });
+      const pg = S.pages[pc.p], col = pg.columns[pc.c], f = sl.free[i], [x0, x1] = xr(pc);
+      const w = x1 - x0, h = pc.y1 - pc.y0, DW = f.w * F;
+      items.push({ pc, pg, col, x0, x1, w, h, X: ox + f.x * F, Y: oy + f.y * F, DW, DH: DW * h / w });
     });
     return { L: { x: ox, y: oy, cw: F, ch: F * FRAME, ws: null }, items };
   }
   const L = layout(sl, W, H);
   let y = 0;
   sl.pieces.forEach((pc, i) => {
-    const pg = S.pages[pc.p], col = pg.columns[pc.c];
+    const pg = S.pages[pc.p], col = pg.columns[pc.c], [x0, x1] = xr(pc);
     if (i) y += pg.H * CFG.SPACER;
-    const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
-    items.push({ pc, pg, col, w, h, X: L.x, Y: L.y + y * L.s, DW: w * L.s, DH: h * L.s });
+    const w = x1 - x0, h = pc.y1 - pc.y0;
+    items.push({ pc, pg, col, x0, x1, w, h, X: L.x, Y: L.y + y * L.s, DW: w * L.s, DH: h * L.s });
     y += h;
   });
   return { L, items };
@@ -723,7 +735,7 @@ function drawThumb(sl, cv, maxW) {
     ctx.fillText('직접 배치', TW - 90, TH - 14);
   }
   for (const it of items)
-    ctx.drawImage(it.pg.canvas, it.col.x0, it.pc.y0, it.w, it.h, it.X, it.Y, it.DW, it.DH);
+    ctx.drawImage(it.pg.canvas, it.x0, it.pc.y0, it.w, it.h, it.X, it.Y, it.DW, it.DH);
 }
 
 /* =========================================================
@@ -810,10 +822,10 @@ function openCut(idx) {
   const cuts = [];
   let y = 0;
   sl.pieces.forEach((pc, i) => {
-    const pg = S.pages[pc.p], col = pg.columns[pc.c];
+    const pg = S.pages[pc.p], col = pg.columns[pc.c], [x0, x1] = xr(pc);
     if (i) { cuts.push({ top: (y + pg.H * CFG.SPACER / 2) * k, a: sl.pieces.slice(0, i), b: sl.pieces.slice(i) }); y += pg.H * CFG.SPACER; }
-    const w = col.x1 - col.x0, h = pc.y1 - pc.y0;
-    ctx.drawImage(pg.canvas, col.x0, pc.y0, w, h, 0, y * k, w * k, h * k);
+    const w = x1 - x0, h = pc.y1 - pc.y0;
+    ctx.drawImage(pg.canvas, x0, pc.y0, w, h, 0, y * k, w * k, h * k);
     // 이 조각 안의 줄 사이 여백 (분수 위아래처럼 아주 좁은 틈은 제외)
     const ls = col.lines.filter(l => l.e > pc.y0 && l.s < pc.y1);
     for (let j = 1; j < ls.length; j++) {
@@ -849,14 +861,16 @@ function closeCut() { $('#modal').classList.add('hidden'); }
    배치 창: 한 슬라이드 안의 블록(조각)을 끌어서 자유롭게 배치
    좌표는 16:9 틀의 가로 길이를 1로 하는 비율 (x, y, w)
    ========================================================= */
-const AR = { idx: -1, pos: [] };
+// AR.crop: 창 안에서 고치는 조각별 자르기 범위(분석 px). 완료를 눌러야 슬라이드에 반영
+const AR = { idx: -1, pos: [], crop: [], moved: false };
 const MARGIN = 0.025;
-function piecesInfo(sl) {
-  return sl.pieces.map(pc => { const col = S.pages[pc.p].columns[pc.c]; return { w: col.x1 - col.x0, h: pc.y1 - pc.y0 }; });
+function piecesInfo() {
+  return AR.crop.map(c => ({ w: c.x1 - c.x0, h: c.y1 - c.y0 }));
 }
 function openArrange(idx) {
   const sl = S.slides[idx];
-  AR.idx = idx;
+  AR.idx = idx; AR.moved = false;
+  AR.crop = sl.pieces.map(pc => { const [x0, x1] = xr(pc); return { x0, x1, y0: pc.y0, y1: pc.y1 }; });
   if (sl.free) AR.pos = sl.free.map(f => ({ ...f }));
   else {   // 지금 보이는 자동 배치에서 시작
     const { items } = place({ ...sl, free: null }, 1, FRAME);
@@ -871,23 +885,29 @@ function closeArrange() { $('#arrange').classList.add('hidden'); }
 function buildBoard() {
   const sl = S.slides[AR.idx], board = $('#board');
   board.querySelectorAll('.blk').forEach(b => b.remove());
-  const BW = board.clientWidth, info = piecesInfo(sl);
   sl.pieces.forEach((pc, i) => {
-    const pg = S.pages[pc.p], col = pg.columns[pc.c], { w, h } = info[i];
     const el = document.createElement('div'); el.className = 'blk'; el.dataset.i = i;
-    const cv = document.createElement('canvas');
-    const dw = Math.min(1400, Math.round(BW * 0.9)); // 미리보기 해상도
-    cv.width = dw; cv.height = Math.max(1, Math.round(dw * h / w));
-    cv.getContext('2d').drawImage(pg.canvas, col.x0, pc.y0, w, h, 0, 0, cv.width, cv.height);
-    el.innerHTML = `<span class="no">${i + 1}</span><span class="rs"></span>`;
-    el.prepend(cv);
+    el.innerHTML = `<span class="no">${i + 1}</span><span class="rs"></span>`
+      + ['l', 'r', 't', 'b'].map(d => `<span class="cr ${d}" data-d="${d}"></span>`).join('');
+    el.prepend(document.createElement('canvas'));
     board.append(el);
+    drawBlk(el, i);
     hookBlock(el, i);
   });
   paintBoard();
 }
+// 블록 미리보기: 지금 자르기 범위만큼 분석용 캔버스에서 잘라 그림
+function drawBlk(el, i) {
+  const pc = S.slides[AR.idx].pieces[i], pg = S.pages[pc.p], c = AR.crop[i];
+  const w = c.x1 - c.x0, h = c.y1 - c.y0, cv = el.querySelector('canvas');
+  const dw = Math.min(1400, Math.round($('#board').clientWidth * 0.9)); // 미리보기 해상도
+  cv.width = dw; cv.height = Math.max(1, Math.round(dw * h / w));
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(pg.canvas, c.x0, c.y0, w, h, 0, 0, cv.width, cv.height);
+}
 function paintBoard() {
-  const board = $('#board'), BW = board.clientWidth, info = piecesInfo(S.slides[AR.idx]);
+  const board = $('#board'), BW = board.clientWidth, info = piecesInfo();
   board.querySelectorAll('.blk').forEach(el => {
     const i = +el.dataset.i, f = AR.pos[i];
     el.style.left = f.x * BW + 'px'; el.style.top = f.y * BW + 'px';
@@ -923,14 +943,25 @@ function snap(i, f, info, mode) {
 function hookBlock(el, i) {
   el.addEventListener('pointerdown', e => {
     e.preventDefault();
-    const resize = e.target.classList.contains('rs');
-    const BW = $('#board').clientWidth, info = piecesInfo(S.slides[AR.idx]);
-    const start = { ...AR.pos[i] }, sx = e.clientX, sy = e.clientY;
-    el.setPointerCapture(e.pointerId); el.classList.add('drag');
+    const resize = e.target.classList.contains('rs'), cut = e.target.dataset.d;
+    const BW = $('#board').clientWidth, info = piecesInfo();
+    const start = { ...AR.pos[i] }, c0 = { ...AR.crop[i] }, sx = e.clientX, sy = e.clientY;
+    if (!cut) AR.moved = true;
+    el.setPointerCapture(e.pointerId); el.classList.add(cut ? 'crop' : 'drag');
     const move = ev => {
       const dx = (ev.clientX - sx) / BW, dy = (ev.clientY - sy) / BW;
       const f = AR.pos[i];
-      if (resize) {
+      if (cut) {   // 테두리 자르기: 글씨 크기·남은 내용의 위치는 그대로 두고 가장자리만 잘라냄(바깥으로 끌면 다시 늘어남)
+        const pg = S.pages[S.slides[AR.idx].pieces[i].p], c = AR.crop[i];
+        const k = start.w / (c0.x1 - c0.x0), min = 20;   // k: 틀 단위 / 분석 px
+        if (cut === 'l') { c.x0 = Math.min(Math.max(0, c0.x0 + dx / k), c0.x1 - min); f.x = start.x + (c.x0 - c0.x0) * k; }
+        if (cut === 'r') c.x1 = Math.max(Math.min(pg.W, c0.x1 + dx / k), c0.x0 + min);
+        if (cut === 't') { c.y0 = Math.min(Math.max(0, c0.y0 + dy / k), c0.y1 - min); f.y = start.y + (c.y0 - c0.y0) * k; }
+        if (cut === 'b') c.y1 = Math.max(Math.min(pg.H, c0.y1 + dy / k), c0.y0 + min);
+        f.w = (c.x1 - c.x0) * k;
+        info[i] = { w: c.x1 - c.x0, h: c.y1 - c.y0 };
+        drawBlk(el, i);
+      } else if (resize) {
         f.w = Math.max(0.12, start.w + dx);
         f.w = Math.min(f.w, 1 - f.x);
         snap(i, f, info, 'resize');
@@ -944,14 +975,15 @@ function hookBlock(el, i) {
     };
     const up = () => {
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
-      el.classList.remove('drag'); $('#gdV').style.display = $('#gdH').style.display = 'none';
+      el.classList.remove('drag', 'crop'); $('#gdV').style.display = $('#gdH').style.display = 'none';
     };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
   });
 }
 // 빠른 배치
 $('#aSide').onclick = () => {   // 좌우로 나란히: 글씨 크기 같게, 위쪽 정렬 → 각 문제 아래가 판서 공간
-  const info = piecesInfo(S.slides[AR.idx]), n = info.length, gap = 0.03;
+  AR.moved = true;
+  const info = piecesInfo(), n = info.length, gap = 0.03;
   const sumW = info.reduce((a, b) => a + b.w, 0);
   let k = (1 - 2 * MARGIN - gap * (n - 1)) / sumW;
   k = Math.min(k, ...info.map(b => (FRAME - 2 * MARGIN * 1.6) / b.h));
@@ -960,7 +992,8 @@ $('#aSide').onclick = () => {   // 좌우로 나란히: 글씨 크기 같게, �
   paintBoard();
 };
 $('#aStack').onclick = () => {  // 위아래로: 왼쪽에 쌓고 오른쪽을 판서 공간으로
-  const info = piecesInfo(S.slides[AR.idx]), gap = 0.02;
+  AR.moved = true;
+  const info = piecesInfo(), gap = 0.02;
   const sumH = info.reduce((a, b) => a + b.h, 0), maxW = Math.max(...info.map(b => b.w));
   const k = Math.min(0.6 / maxW, (FRAME - 2 * MARGIN * 1.6 - gap * (info.length - 1)) / sumH);
   let y = MARGIN * 1.6;
@@ -968,19 +1001,41 @@ $('#aStack').onclick = () => {  // 위아래로: 왼쪽에 쌓고 오른쪽을 �
   paintBoard();
 };
 $('#aSame').onclick = () => {   // 모든 블록을 1번 블록과 같은 글씨 크기로
-  const info = piecesInfo(S.slides[AR.idx]), k = AR.pos[0].w / info[0].w;
+  AR.moved = true;
+  const info = piecesInfo(), k = AR.pos[0].w / info[0].w;
   AR.pos.forEach((f, i) => { f.w = Math.min(info[i].w * k, 1 - f.x); });
   paintBoard();
 };
 $('#aAuto').onclick = () => {
-  const sl = S.slides[AR.idx]; delete sl.free; S.edited = true;
+  const sl = S.slides[AR.idx]; delete sl.free; applyCrop(sl); S.edited = true;
   closeArrange(); renderGrid(); toast('자동 배치로 되돌렸어요');
 };
 $('#aCancel').onclick = closeArrange;
+// 창에서 고친 자르기 범위를 조각에 반영 (단의 범위와 같으면 x0·x1을 따로 두지 않음)
+function applyCrop(sl) {
+  sl.pieces.forEach((pc, i) => {
+    const c = AR.crop[i], col = S.pages[pc.p].columns[pc.c];
+    const x0 = Math.round(c.x0), x1 = Math.round(c.x1);
+    if (x0 === col.x0 && x1 === col.x1) { delete pc.x0; delete pc.x1; } else { pc.x0 = x0; pc.x1 = x1; }
+    pc.y0 = Math.round(c.y0); pc.y1 = Math.round(c.y1);
+  });
+}
+$('#aUncrop').onclick = () => {   // 이 창을 연 뒤가 아니라, 처음 자동으로 잘린 범위로
+  const sl = S.slides[AR.idx];
+  AR.crop.forEach((c, i) => {
+    const pc = sl.pieces[i], col = S.pages[pc.p].columns[pc.c], k = AR.pos[i].w / (c.x1 - c.x0);
+    AR.pos[i].x -= (c.x0 - col.x0) * k;
+    c.x0 = col.x0; c.x1 = col.x1;
+    AR.pos[i].w = (c.x1 - c.x0) * k;
+  });
+  buildBoard(); toast('좌우로 자른 곳을 되돌렸어요 (위아래는 나누기 기준 그대로)');
+};
 $('#aDone').onclick = () => {
   const sl = S.slides[AR.idx];
-  sl.free = AR.pos.map(f => ({ x: +f.x.toFixed(4), y: +f.y.toFixed(4), w: +f.w.toFixed(4) }));
-  S.edited = true; closeArrange(); renderGrid(); toast(`${AR.idx + 1}번 슬라이드 배치를 저장했어요`);
+  applyCrop(sl);
+  // 자르기만 했다면 자동 배치를 유지
+  if (sl.free || AR.moved) sl.free = AR.pos.map(f => ({ x: +f.x.toFixed(4), y: +f.y.toFixed(4), w: +f.w.toFixed(4) }));
+  S.edited = true; closeArrange(); renderGrid(); toast(`${AR.idx + 1}번 슬라이드를 저장했어요`);
 };
 $('#arrange').onclick = e => { if (e.target.id === 'arrange') closeArrange(); };
 addEventListener('resize', () => { if (!$('#arrange').classList.contains('hidden')) paintBoard(); });
@@ -1401,7 +1456,7 @@ function layoutData() {
   return {
     v: 2, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
     slides: S.slides.map(sl => ({
-      ps: sl.pieces.map(pc => [pc.p, pc.c, pc.y0, pc.y1]),
+      ps: sl.pieces.map(pc => pc.x0 != null ? [pc.p, pc.c, pc.y0, pc.y1, pc.x0, pc.x1] : [pc.p, pc.c, pc.y0, pc.y1]),
       f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null,
     })), t: Date.now(),
   };
@@ -1424,7 +1479,7 @@ function applyLayout(d, n = S.pages.length) {
   if (!ok) return false;
   S.maxH = d.maxH; S.pos = d.pos; S.reserve = d.reserve; S.edited = !!d.edited;
   S.slides = list.map(x => {
-    const sl = { id: uid++, pieces: x.ps.map(([p, c, y0, y1]) => ({ p, c, y0, y1 })) };
+    const sl = { id: uid++, pieces: x.ps.map(([p, c, y0, y1, x0, x1]) => x0 != null ? { p, c, y0, y1, x0, x1 } : { p, c, y0, y1 }) };
     if (x.f && x.f.length === sl.pieces.length) sl.free = x.f.map(([fx, fy, fw]) => ({ x: fx, y: fy, w: fw }));
     return sl;
   });
@@ -1482,10 +1537,10 @@ async function exportPdf(withInk) {
     meta.pages.push({ r: items.map(it => [r5(it.X), r5(it.Y), r5(it.DW), r5(it.DH)]),
                       f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null });
     for (const it of items) {
-      const { pc, pg, col, w } = it;
+      const { pc, pg } = it;
       const { e, mb } = await getFull(pg);
       // 조각의 PDF 좌표(pt)
-      const [ax, ay] = pg.vp.convertToPdfPoint(col.x0, pc.y0), [bx, by] = pg.vp.convertToPdfPoint(col.x1, pc.y1);
+      const [ax, ay] = pg.vp.convertToPdfPoint(it.x0, pc.y0), [bx, by] = pg.vp.convertToPdfPoint(it.x1, pc.y1);
       const left = Math.min(ax, bx), bottom = Math.min(ay, by), right = Math.max(ax, bx), top = Math.max(ay, by);
       const k = it.DW / (right - left);                 // 원본 pt → 출력 pt
       const X = it.X, Y = PH - (it.Y + it.DH), DW = it.DW, DH = it.DH;
@@ -1572,14 +1627,14 @@ async function renderSlide(i) {
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   for (const it of items) {
-    const { pc, pg, col } = it;
+    const { pc, pg } = it;
     const k = it.DW / it.w * dpr;                      // 분석 px → 화면 실제 px
     const tmp = document.createElement('canvas');
     tmp.width = Math.max(1, Math.ceil(it.w * k)); tmp.height = Math.max(1, Math.ceil(it.h * k));
     const tctx = tmp.getContext('2d');
     tctx.fillStyle = '#fff'; tctx.fillRect(0, 0, tmp.width, tmp.height);
     const vp = pg.page.getViewport({ scale: pg.scale * k });
-    await pg.page.render({ canvasContext: tctx, viewport: vp, transform: [1, 0, 0, 1, -col.x0 * k, -pc.y0 * k] }).promise;
+    await pg.page.render({ canvasContext: tctx, viewport: vp, transform: [1, 0, 0, 1, -it.x0 * k, -pc.y0 * k] }).promise;
     ctx.drawImage(tmp, Math.round(it.X * dpr), Math.round(it.Y * dpr));
   }
   cache.set(key, cv);
