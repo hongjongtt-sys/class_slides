@@ -351,7 +351,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const $ = s => document.querySelector(s);
 const S = {
   pdf: null, name: '', pages: [], slides: [], cur: 0,
-  maxH: 0.46, pos: 'right', reserve: 0.4, edited: false,
+  maxH: 0.46, pos: 'right', reserve: 0.4, edited: false, det: 2,   // det: 단 나누기 방식(2 = 짧은 구분선도 인식)
   pen: false, color: '#e0262b', ink: {}, // ink[slideId] = strokes
 };
 let uid = 1;
@@ -504,21 +504,25 @@ async function analyzePage(no) {
   }
 
   // --- 단(칼럼) 찾기: 가운데 40~60% 에서 세로 구분선 또는 빈 홈
-  let cols = [[0, W]];
   const lo = Math.floor(W * 0.4), hi = Math.floor(W * 0.6);
-  let bx = lo;
-  for (let x = lo; x < hi; x++) if (colSum[x] > colSum[bx]) bx = x;
-  if (colSum[bx] / H > 0.3) {
-    cols = [[0, bx - 3], [bx + 4, W]];
-  } else {
+  const gapCols = () => {   // 가운데 빈 홈의 한가운데에서 나눔
     let best = null, s = -1;
     for (let x = lo; x <= hi; x++) {
       const blank = x < hi && colSum[x] / H < 0.002;
       if (blank && s < 0) s = x;
       if (!blank && s >= 0) { if (x - s > W * 0.015 && (!best || x - s > best[1] - best[0])) best = [s, x]; s = -1; }
     }
-    if (best) { const m = (best[0] + best[1]) >> 1; cols = [[0, m], [m, W]]; }
-  }
+    if (!best) return [[0, W]];
+    const m = (best[0] + best[1]) >> 1; return [[0, m], [m, W]];
+  };
+  // 예전 방식: 가장 진한 세로줄이 높이의 30% 이상이면 구분선, 아니면 빈 홈
+  let bx = lo;
+  for (let x = lo; x < hi; x++) if (colSum[x] > colSum[bx]) bx = x;
+  const colsOld = colSum[bx] / H > 0.3 ? [[0, bx - 3], [bx + 4, W]] : gapCols();
+  // 지금 방식: 짧거나 조금 비켜난 구분선도 빼고 나누고, 좌표축은 구분선으로 보지 않음(그래프를 반으로 자르지 않게)
+  const dv = findDivider(ink, W, H, lo, hi);
+  const cols = Array.isArray(dv) ? [[0, dv[0] - 2], [dv[1] + 3, W]] : dv === 'axis' ? gapCols() : colsOld;
+  // 단 개수가 예전과 다르면 예전 결과(alt)도 만들어, 이전에 편집해 둔 구성(det 없음)을 열 때 그대로 씀
 
   // --- 텍스트(첫 줄 판별용)
   let texts = [];
@@ -530,6 +534,7 @@ async function analyzePage(no) {
     });
   } catch (e) {}
 
+  const toColumns = cols => {
   const columns = [];
   for (const [x0, x1] of cols) {
     const rows = new Uint32Array(H);
@@ -561,7 +566,51 @@ async function analyzePage(no) {
       texts: texts.filter(t => t.x >= x0 - 2 && t.x < x1),
     });
   }
-  return { no, page, scale, vp, W, H, canvas: cv, columns };
+  return columns;
+  };
+  const columns = toColumns(cols);
+  const alt = colsOld !== cols && colsOld.length !== cols.length ? toColumns(colsOld) : null;
+  return { no, page, scale, vp, W, H, canvas: cv, columns, alt };
+}
+
+/* 다단 구분선 찾기: 가운데 띠(lo~hi)에서 가장 길게 이어진 세로선이
+   ① 그 쪽 내용 높이의 30% 이상이고 ② 가늘며 ③ 선 길이 내내 양옆이 비어 있을 때만 구분선으로 봄.
+   좌표축·표 테두리는 곡선·눈금·글자·가로선이 붙어 있어서 ③에서 걸러짐.
+   찾으면 [선 왼쪽 x, 오른쪽 x], 길지만 양옆에 뭔가 붙은 선(좌표축 등)이면 'axis' */
+function findDivider(ink, W, H, lo, hi) {
+  let top = -1, bot = -1;
+  for (let y = 0; y < H && top < 0; y++) { const b = y * W; for (let x = 0; x < W; x++) if (ink[b + x]) { top = y; break; } }
+  for (let y = H - 1; y >= 0 && bot < 0; y--) { const b = y * W; for (let x = 0; x < W; x++) if (ink[b + x]) { bot = y; break; } }
+  if (top < 0) return null;
+  const maxGap = Math.max(3, Math.round(H * 0.004));   // 점선 구분선의 끊김 허용
+  let best = null;
+  for (let x = lo; x < hi; x++) {
+    let s = -1, last = -1;
+    for (let y = top; y <= bot; y++) {
+      if (!ink[y * W + x]) continue;
+      if (s < 0 || y - last > maxGap) s = y;
+      last = y;
+      if (!best || last - s > best.e - best.s) best = { x, s, e: last };
+    }
+  }
+  if (!best) return null;
+  const len = best.e - best.s;
+  if (len < (bot - top) * 0.3 || len < H * 0.06) return null;
+  const filled = x => { let c = 0; for (let y = best.s; y <= best.e; y++) c += ink[y * W + x]; return c / (len + 1); };
+  let x0 = best.x, x1 = best.x;
+  while (x0 > 1 && filled(x0 - 1) > 0.6) x0--;
+  while (x1 < W - 2 && filled(x1 + 1) > 0.6) x1++;
+  if (x1 - x0 > W * 0.006) return null;              // 두꺼우면 선이 아님
+  const g = Math.max(6, Math.round(W * 0.005));
+  let dirty = 0;
+  for (let y = Math.max(0, best.s - 3); y <= Math.min(H - 1, best.e + 3); y++) {
+    const b = y * W;
+    for (let x = Math.max(0, x0 - g); x <= Math.min(W - 1, x1 + g); x++) {
+      if (x >= x0 - 1 && x <= x1 + 1) continue;      // 선 자체와 바로 옆 번짐은 제외
+      if (ink[b + x]) { dirty++; break; }
+    }
+  }
+  return dirty <= 2 ? [x0, x1] : 'axis';
 }
 
 // 구간 안에서 글자가 있는 첫 줄의 텍스트 (표 테두리처럼 글자 없는 줄은 건너뜀)
@@ -582,6 +631,10 @@ function firstText(col, y0, y1) {
    ========================================================= */
 // from 이후 페이지들로 슬라이드를 만듦. from=0이면 전체를 새로 만들고, 아니면 만든 슬라이드만 돌려줌(내용 추가용)
 function buildSlides(from = 0) {
+  if (from === 0) {   // 처음부터 새로 만들 때는 고친 구분선 인식을 씀
+    S.det = 2;
+    S.pages.forEach(pg => { if (pg.cur) pg.columns = pg.cur; });
+  }
   if (S.wholePage) {
     S.slides = S.pages.map((pg, i) => ({ id: uid++, pieces: [{ p: i, c: 0, y0: 0, y1: pg.H }] }));
     return S.slides;
@@ -835,8 +888,8 @@ function openCut(idx) {
       if (cy <= pc.y0 + 4 || cy >= pc.y1 - 4) continue;
       cuts.push({
         top: (y + cy - pc.y0) * k,
-        a: [...sl.pieces.slice(0, i), { ...pc, y1: cy }],
-        b: [{ ...pc, y0: cy }, ...sl.pieces.slice(i + 1)],
+        a: [...sl.pieces.slice(0, i), cutPc(pc, { y1: cy })],
+        b: [cutPc(pc, { y0: cy }), ...sl.pieces.slice(i + 1)],
       });
     }
     y += h;
@@ -855,6 +908,7 @@ function openCut(idx) {
   });
   $('#modal').classList.remove('hidden');
 }
+function cutPc(pc, o) { const n = { ...pc, ...o }; delete n.oy; return n; }
 function closeCut() { $('#modal').classList.add('hidden'); }
 
 /* =========================================================
@@ -870,7 +924,7 @@ function piecesInfo() {
 function openArrange(idx) {
   const sl = S.slides[idx];
   AR.idx = idx; AR.moved = false;
-  AR.crop = sl.pieces.map(pc => { const [x0, x1] = xr(pc); return { x0, x1, y0: pc.y0, y1: pc.y1 }; });
+  AR.crop = sl.pieces.map(pc => { const [x0, x1] = xr(pc), [oy0, oy1] = pc.oy || [pc.y0, pc.y1]; return { x0, x1, y0: pc.y0, y1: pc.y1, oy0, oy1 }; });
   if (sl.free) AR.pos = sl.free.map(f => ({ ...f }));
   else {   // 지금 보이는 자동 배치에서 시작
     const { items } = place({ ...sl, free: null }, 1, FRAME);
@@ -1018,17 +1072,18 @@ function applyCrop(sl) {
     const x0 = Math.round(c.x0), x1 = Math.round(c.x1);
     if (x0 === col.x0 && x1 === col.x1) { delete pc.x0; delete pc.x1; } else { pc.x0 = x0; pc.x1 = x1; }
     pc.y0 = Math.round(c.y0); pc.y1 = Math.round(c.y1);
+    if (pc.y0 === c.oy0 && pc.y1 === c.oy1) delete pc.oy; else pc.oy = [c.oy0, c.oy1];   // 처음 나뉜 위아래 범위
   });
 }
 $('#aUncrop').onclick = () => {   // 이 창을 연 뒤가 아니라, 처음 자동으로 잘린 범위로
   const sl = S.slides[AR.idx];
   AR.crop.forEach((c, i) => {
     const pc = sl.pieces[i], col = S.pages[pc.p].columns[pc.c], k = AR.pos[i].w / (c.x1 - c.x0);
-    AR.pos[i].x -= (c.x0 - col.x0) * k;
-    c.x0 = col.x0; c.x1 = col.x1;
+    AR.pos[i].x -= (c.x0 - col.x0) * k; AR.pos[i].y -= (c.y0 - c.oy0) * k;
+    c.x0 = col.x0; c.x1 = col.x1; c.y0 = c.oy0; c.y1 = c.oy1;
     AR.pos[i].w = (c.x1 - c.x0) * k;
   });
-  buildBoard(); toast('좌우로 자른 곳을 되돌렸어요 (위아래는 나누기 기준 그대로)');
+  buildBoard(); toast('이 슬라이드의 자른 곳을 되돌렸어요');
 };
 $('#aDone').onclick = () => {
   const sl = S.slides[AR.idx];
@@ -1454,9 +1509,14 @@ $('#swapFile').onchange = e => e.target.files[0] && replacePdf(e.target.files[0]
    ========================================================= */
 function layoutData() {
   return {
-    v: 2, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
+    v: 2, det: S.det, n: S.pages.length, maxH: S.maxH, pos: S.pos, reserve: S.reserve, edited: S.edited,
     slides: S.slides.map(sl => ({
-      ps: sl.pieces.map(pc => pc.x0 != null ? [pc.p, pc.c, pc.y0, pc.y1, pc.x0, pc.x1] : [pc.p, pc.c, pc.y0, pc.y1]),
+      ps: sl.pieces.map(pc => {   // [p, c, y0, y1] 뒤에 자른 경우만 x0, x1, 원래 y0, y1
+        const a = [pc.p, pc.c, pc.y0, pc.y1];
+        if (pc.x0 != null || pc.oy) a.push(pc.x0 != null ? pc.x0 : null, pc.x0 != null ? pc.x1 : null);
+        if (pc.oy) a.push(...pc.oy);
+        return a;
+      }),
       f: sl.free ? sl.free.map(f => [f.x, f.y, f.w]) : null,
     })), t: Date.now(),
   };
@@ -1474,12 +1534,25 @@ function loadLayout() {
 }
 function applyLayout(d, n = S.pages.length) {
   if (!d || (d.v !== 1 && d.v !== 2) || d.n !== n) return false;
+  // 구분선 인식을 고치기 전(det 없음)에 만든 구성은 그때의 단 나누기로 열어야 조각 위치가 맞음
+  const det = d.det || 1;
+  S.pages.forEach(pg => {
+    if (!pg.alt) return;
+    if (!pg.cur) pg.cur = pg.columns;
+    pg.columns = det < 2 ? pg.alt : pg.cur;
+  });
+  S.det = det;
   const list = d.slides.map(x => Array.isArray(x) ? { ps: x, f: null } : x);   // v1 호환
   const ok = list.every(x => x.ps.every(([p, c]) => S.pages[p] && S.pages[p].columns[c]));
   if (!ok) return false;
   S.maxH = d.maxH; S.pos = d.pos; S.reserve = d.reserve; S.edited = !!d.edited;
   S.slides = list.map(x => {
-    const sl = { id: uid++, pieces: x.ps.map(([p, c, y0, y1, x0, x1]) => x0 != null ? { p, c, y0, y1, x0, x1 } : { p, c, y0, y1 }) };
+    const sl = { id: uid++, pieces: x.ps.map(([p, c, y0, y1, x0, x1, oy0, oy1]) => {
+      const pc = { p, c, y0, y1 };
+      if (x0 != null) { pc.x0 = x0; pc.x1 = x1; }
+      if (oy0 != null) pc.oy = [oy0, oy1];
+      return pc;
+    }) };
     if (x.f && x.f.length === sl.pieces.length) sl.free = x.f.map(([fx, fy, fw]) => ({ x: fx, y: fy, w: fw }));
     return sl;
   });
