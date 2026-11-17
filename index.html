@@ -164,6 +164,10 @@ button{font:inherit;cursor:pointer}
 #hud .dot{width:14px;height:14px;border-radius:50%;display:inline-block;vertical-align:middle;border:2px solid rgba(255,255,255,.6)}
 #hud .count{padding:0 8px;font-variant-numeric:tabular-nums;opacity:.85}
 #hud .sep{width:1px;height:18px;background:rgba(255,255,255,.25);margin:0 2px}
+/* 검은 배경 보기: inv = 색 반전(검은 바탕·흰 글씨), card = 검은 바탕 위에 문제만 흰 카드로 */
+#show.bg-inv,#show.bg-card{background:#000}
+#show.bg-inv #stage{filter:invert(1) hue-rotate(180deg)}
+#show.bg-inv #hud .hc[data-c="#111111"] .dot,#show.bg-card #hud .hc[data-c="#111111"] .dot{background:#fff!important}
 #loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#9aa3af;font-size:14px;z-index:1}
 </style>
 </head>
@@ -212,7 +216,7 @@ button{font:inherit;cursor:pointer}
   <div class="banner hidden" id="banner"></div>
   <div class="help" id="help">
     썸네일을 클릭하면 그 슬라이드부터 발표하고, <b>카드를 끌어서</b> 순서를 바꿀 수 있습니다. <b>✂ 나누기</b>를 누르면 크게 열리고 자를 수 있는 곳마다 ✂ 표시가 나옵니다. <b>↑ 합치기</b>는 바로 앞 슬라이드에 이어 붙이고, <b>✥ 배치</b>에서 블록을 끌어 좌우로 놓거나 크기를 바꾸고, 테두리의 빨간 막대로 문항마다 가장자리를 잘라낼 수 있습니다.
-    발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>Esc</kbd> 종료
+    발표 중: <kbd>→</kbd><kbd>PgDn</kbd><kbd>Space</kbd> 다음 · <kbd>←</kbd><kbd>PgUp</kbd> 이전 · <kbd>P</kbd> 펜 · <kbd>Z</kbd> 되돌리기 · <kbd>C</kbd> 판서 지우기 · <kbd>B</kbd> 검은 화면 · <kbd>W</kbd> 흰 화면 · <kbd>D</kbd> 배경(흰/검은) · <kbd>Esc</kbd> 종료
   </div>
   <div id="grid"></div>
 </section>
@@ -311,6 +315,7 @@ button{font:inherit;cursor:pointer}
     <button id="hUndo" title="되돌리기 (Z)">↶</button>
     <button id="hClear" title="판서 지우기 (C)">지우기</button>
     <span class="sep"></span>
+    <button id="hBg" title="배경 바꾸기: 흰 바탕 → 검은 바탕(반전) → 검은 바탕+문제 카드 (D)">◐ 배경</button>
     <button id="hSave" title="판서 포함해서 PDF로 저장">⬇ 저장</button>
     <button id="hFull" title="전체화면 (F)">⛶</button>
     <button id="hExit" title="종료 (Esc)">✕</button>
@@ -1657,7 +1662,7 @@ function showView(v) {
 
 function startShow(i) {
   if (!S.slides.length) return;
-  S.cur = i; showView('show');
+  S.cur = i; setBg('white'); showView('show');   // 발표는 늘 흰 바탕으로 시작
   goFull();
   setTimeout(() => { resize(); }, 60);
   pokeHud();
@@ -1693,12 +1698,25 @@ async function renderSlide(i) {
   const dpr = window.devicePixelRatio || 1;
   const W = innerWidth, H = innerHeight;
   const { L, items } = place(sl, W, H);
-  const key = `${sl.id}|${W}x${H}|${dpr}|${S.pos}${S.reserve}`;
+  const key = `${sl.id}|${W}x${H}|${dpr}|${S.pos}${S.reserve}|${S.bg === 'card' ? 'c' : ''}`;
   if (cache.has(key)) return { cv: cache.get(key), L };
   const cv = document.createElement('canvas');
   cv.width = Math.ceil(W * dpr); cv.height = Math.ceil(H * dpr);
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  let card = null;
+  if (S.bg === 'card' && items.length) {   // 검은 바탕 + 문제 부분만 흰 카드
+    const pad = Math.min(W, H) * 0.018;
+    const x0 = Math.min(...items.map(it => it.X)) - pad, y0 = Math.min(...items.map(it => it.Y)) - pad;
+    const x1 = Math.max(...items.map(it => it.X + it.DW)) + pad, y1 = Math.max(...items.map(it => it.Y + it.DH)) + pad;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#fff'; ctx.beginPath();
+    const r = pad * 0.8 * dpr;
+    if (ctx.roundRect) ctx.roundRect(x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr, r);
+    else ctx.rect(x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr);
+    ctx.fill();
+    card = { x0, y0, x1, y1 };
+  }
   for (const it of items) {
     const { pc, pg } = it;
     const k = it.DW / it.w * dpr;                      // 분석 px → 화면 실제 px
@@ -1710,6 +1728,7 @@ async function renderSlide(i) {
     await pg.page.render({ canvasContext: tctx, viewport: vp, transform: [1, 0, 0, 1, -it.x0 * k, -pc.y0 * k] }).promise;
     ctx.drawImage(tmp, Math.round(it.X * dpr), Math.round(it.Y * dpr));
   }
+  cv._card = card;
   cache.set(key, cv);
   if (cache.size > 8) cache.delete(cache.keys().next().value);
   return { cv, L };
@@ -1723,10 +1742,10 @@ async function draw() {
   if (tok !== drawToken || !r) return;
   stage.width = innerWidth * dpr; stage.height = innerHeight * dpr;
   const ctx = stage.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, stage.width, stage.height);
+  ctx.fillStyle = S.bg === 'card' ? '#000' : '#fff'; ctx.fillRect(0, 0, stage.width, stage.height);
   ctx.drawImage(r.cv, 0, 0);
   $('#loading').style.display = 'none';
-  S.L = r.L;
+  S.L = r.L; S.card = S.bg === 'card' ? r.cv._card : null;
   redrawInk();
   $('#hCount').textContent = `${S.cur + 1} / ${S.slides.length}`;
   $('#prog').style.width = ((S.cur + 1) / S.slides.length * 100) + '%';
@@ -1755,7 +1774,7 @@ function redrawInk() {
   if (!L) return;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (const st of strokes()) {
-    ctx.strokeStyle = st.c; ctx.lineWidth = st.w * dpr * Math.min(innerWidth, innerHeight) / 900;
+    ctx.strokeStyle = inkColor(st.c, st.pts[0]); ctx.lineWidth = st.w * dpr * Math.min(innerWidth, innerHeight) / 900;
     ctx.beginPath();
     st.pts.forEach(([u, v], i) => {
       const X = (L.x + u * L.cw) * dpr, Y = (L.y + v * L.ch) * dpr;
@@ -1783,6 +1802,25 @@ inkCv.addEventListener('pointermove', e => {
 ['pointerup', 'pointercancel'].forEach(t => inkCv.addEventListener(t, () => { curStroke = null; }));
 inkCv.addEventListener('contextmenu', e => { e.preventDefault(); if (!S.pen) go(-1); });
 
+// 검은 배경에서는 검정 펜을 흰색으로 보여 줌(저장되는 색은 그대로).
+// 반전: 파랑도 밝게. 문제 카드: 흰 카드 안에서 시작한 선은 그대로 검정, 바깥(검은 곳)은 흰색
+function inkColor(c, p0) {
+  if (S.bg === 'inv') return c === '#111111' ? '#ffffff' : c === '#1f5fd1' ? '#5ea2ff' : c;
+  if (S.bg === 'card' && c === '#111111' && S.card && S.L && p0) {
+    const X = S.L.x + p0[0] * S.L.cw, Y = S.L.y + p0[1] * S.L.ch, k = S.card;
+    if (!(X >= k.x0 && X <= k.x1 && Y >= k.y0 && Y <= k.y1)) return '#ffffff';
+  }
+  return c;
+}
+/* ---------- 배경: white(흰 바탕) / inv(검은 바탕·반전) / card(검은 바탕+문제 카드) ---------- */
+const BG_NAME = { white: '흰 바탕', inv: '검은 바탕', card: '검은 바탕 + 문제 카드' };
+function setBg(v) {
+  S.bg = BG_NAME[v] ? v : 'white';
+  show.classList.toggle('bg-inv', S.bg === 'inv'); show.classList.toggle('bg-card', S.bg === 'card');
+  $('#hBg').classList.toggle('on', S.bg !== 'white');
+  if (!show.classList.contains('hidden')) draw();
+}
+function cycleBg() { setBg({ white: 'inv', inv: 'card', card: 'white' }[S.bg]); toast(BG_NAME[S.bg]); }
 function setPen(on) {
   S.pen = on; show.classList.toggle('pen', on); $('#hPen').classList.toggle('on', on);
 }
@@ -1808,10 +1846,12 @@ document.querySelectorAll('#hud .hc').forEach(b => b.onclick = () => setColor(b.
 $('#hUndo').onclick = undo;
 $('#hClear').onclick = clearInk;
 $('#hFull').onclick = toggleFull;
+$('#hBg').onclick = cycleBg;
 function toggleFull() { if (document.fullscreenElement) { S._manual = true; document.exitFullscreen(); } else goFull(); }
 $('#hExit').onclick = endShow;
 $('#hSave').onclick = () => exportPdf(true).catch(e => { console.error(e); toast('PDF 저장에 실패했어요'); });
 setColor('#e0262b'); setPen(false);
+setBg('white');
 
 /* ---------- 키보드 · 프레젠터 ---------- */
 document.addEventListener('keydown', e => {
@@ -1829,6 +1869,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'b' || k === 'B' || k === '.') { curtain.className = curtain.className === 'black' ? '' : 'black'; }
   else if (k === 'w' || k === 'W' || k === ',') { curtain.className = curtain.className === 'white' ? '' : 'white'; }
   else if (k === 'p' || k === 'P') setPen(!S.pen);
+  else if (k === 'd' || k === 'D') cycleBg();
   else if (k === '1') setColor('#e0262b');
   else if (k === '2') setColor('#1f5fd1');
   else if (k === '3') setColor('#111111');
